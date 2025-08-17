@@ -8,6 +8,8 @@ use tokio_postgres::tls::MakeTlsConnect;
 mod config;
 mod connect;
 
+#[cfg(feature = "native-roots")]
+pub use config::config_native_roots;
 pub use config::config_no_verify;
 pub use rustls;
 

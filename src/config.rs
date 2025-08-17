@@ -5,6 +5,19 @@ use rustls::{
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
 };
 
+#[cfg(feature = "native-roots")]
+pub fn config_native_roots() -> ClientConfig {
+    let mut root_store = rustls::RootCertStore::empty();
+    let results = rustls_native_certs::load_native_certs();
+    for cert in results.certs {
+        let _ = root_store.add(cert);
+    }
+
+    ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth()
+}
+
 pub fn config_no_verify() -> ClientConfig {
     ClientConfig::builder()
         .dangerous()
