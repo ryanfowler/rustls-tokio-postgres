@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use rustls::{
-    ClientConfig, Error as TlsError, SignatureScheme,
+    ClientConfig, Error as TlsError, RootCertStore, SignatureScheme,
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
 };
 
 #[cfg(feature = "native-roots")]
 pub fn config_native_roots() -> ClientConfig {
-    let mut root_store = rustls::RootCertStore::empty();
+    let mut root_store = RootCertStore::empty();
     let results = rustls_native_certs::load_native_certs();
     for cert in results.certs {
         let _ = root_store.add(cert);
@@ -20,7 +20,7 @@ pub fn config_native_roots() -> ClientConfig {
 
 #[cfg(feature = "webpki-roots")]
 pub fn config_webpki_roots() -> ClientConfig {
-    let root_store = rustls::RootCertStore {
+    let root_store = RootCertStore {
         roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
     };
 
