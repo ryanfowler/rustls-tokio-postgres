@@ -18,6 +18,17 @@ pub fn config_native_roots() -> ClientConfig {
         .with_no_client_auth()
 }
 
+#[cfg(feature = "webpki-roots")]
+pub fn config_webpki_roots() -> ClientConfig {
+    let root_store = rustls::RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    };
+
+    ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth()
+}
+
 pub fn config_no_verify() -> ClientConfig {
     ClientConfig::builder()
         .dangerous()

@@ -11,6 +11,8 @@ mod connect;
 #[cfg(feature = "native-roots")]
 pub use config::config_native_roots;
 pub use config::config_no_verify;
+#[cfg(feature = "webpki-roots")]
+pub use config::config_webpki_roots;
 pub use rustls;
 
 /// A MakeTlsConnect implementation that uses rustls.
