@@ -7,11 +7,9 @@ use std::{
 
 use rustls::ClientConfig;
 use rustls_pki_types::ServerName;
-use sha2::{Digest, Sha256, Sha384, Sha512};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_postgres::tls::{ChannelBinding, TlsConnect};
 use tokio_rustls::{TlsConnector, client::TlsStream as RustlsTlsStream};
-use x509_parser::{oid_registry::*, prelude::*, signature_algorithm::RsaSsaPssParams};
 
 /// Performs the TLS handshake.
 pub struct RustlsConnect {
@@ -45,6 +43,7 @@ impl<S> tokio_postgres::tls::TlsStream for TlsStream<S>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    #[cfg(feature = "channel-binding")]
     fn channel_binding(&self) -> ChannelBinding {
         let (_io, common) = self.0.get_ref();
         let der = match common.peer_certificates().and_then(|cs| cs.first()) {
@@ -52,6 +51,11 @@ where
             None => return ChannelBinding::none(),
         };
         ChannelBinding::tls_server_end_point(tls_server_end_point_digest(der))
+    }
+
+    #[cfg(not(feature = "channel-binding"))]
+    fn channel_binding(&self) -> ChannelBinding {
+        ChannelBinding::none()
     }
 }
 
@@ -93,7 +97,11 @@ where
 ///
 /// Rule: use the cert **signature** hash (SHA-256/384/512),
 /// but if it's MD5 or SHA-1 (or unknown), fall back to SHA-256.
+#[cfg(feature = "channel-binding")]
 fn tls_server_end_point_digest(cert_der: &[u8]) -> Vec<u8> {
+    use sha2::{Digest, Sha256, Sha384, Sha512};
+    use x509_parser::{oid_registry::*, prelude::*, signature_algorithm::RsaSsaPssParams};
+
     // Parse the certificate so we can inspect the signature algorithm OID.
     let Ok((_, x509)) = X509Certificate::from_der(cert_der) else {
         // If parsing fails, conservative SHA-256 fallback (still deterministic).

@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = []
+default = ["channel-binding"]
+channel-binding = ["dep:sha2", "dep:x509-parser"]
 native-roots = ["dep:rustls-native-certs"]
 webpki-roots = ["dep:webpki-roots"]
 
@@ -12,9 +13,9 @@ webpki-roots = ["dep:webpki-roots"]
 rustls = { version = "0.23" }
 rustls-native-certs = { version = "0.8", optional = true }
 rustls-pki-types = { version = "1.12" }
-sha2 = { version = "0.10" }
+sha2 = { version = "0.10", optional = true }
 tokio = { version = "1.47" }
 tokio-postgres = { version = "0.7" }
 tokio-rustls = { version = "0.26" }
 webpki-roots = { version = "1.0", optional = true }
-x509-parser = { version = "0.17" }
+x509-parser = { version = "0.17", optional = true }
