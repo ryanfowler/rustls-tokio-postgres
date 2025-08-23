@@ -5,6 +5,8 @@ use rustls::{
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
 };
 
+// Helper function that returns a rustls ClientConfig that uses root
+// certificates from the rustls_native_certs crate.
 #[cfg(feature = "native-roots")]
 pub fn config_native_roots() -> ClientConfig {
     let mut root_store = rustls::RootCertStore::empty();
@@ -18,6 +20,8 @@ pub fn config_native_roots() -> ClientConfig {
         .with_no_client_auth()
 }
 
+/// Helper function that returns a rustls ClientConfig that uses root
+/// certificates from the webpki_roots crate.
 #[cfg(feature = "webpki-roots")]
 pub fn config_webpki_roots() -> ClientConfig {
     let root_store = rustls::RootCertStore {
@@ -29,6 +33,8 @@ pub fn config_webpki_roots() -> ClientConfig {
         .with_no_client_auth()
 }
 
+/// Helper function that returns a rustls ClientConfig that does not verify the
+/// server certificate.
 pub fn config_no_verify() -> ClientConfig {
     ClientConfig::builder()
         .dangerous()
