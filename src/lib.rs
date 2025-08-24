@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 //! A [`tokio_postgres`] TLS connector backed by [`rustls`].
 //!

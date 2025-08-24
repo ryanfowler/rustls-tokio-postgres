@@ -28,3 +28,7 @@ x509-parser = { version = "0.17", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.47", features = ["macros", "rt-multi-thread"] }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
