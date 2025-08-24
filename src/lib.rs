@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
 
 //! A [`tokio_postgres`] TLS connector backed by [`rustls`].
 //!
@@ -14,10 +14,12 @@
 //!     static CONFIG: &str = "host=localhost user=postgres";
 //!
 //!     // This rustls config does not verify the server certificate.
-//!     // You can construct your own rustls ClientConfig, if needed.
-//!     let tls = MakeRustlsConnect::new(config_no_verify());
+//!     // You can construct your own rustls ClientConfig, or enable the
+//!     // `native-roots` or `webpki-roots` features for other config helpers.
+//!     let config = config_no_verify();
 //!
 //!     // Create the client with the TLS configuration.
+//!     let tls = MakeRustlsConnect::new(config);
 //!     let (_client, _conn) = connect(CONFIG, tls).await?;
 //!
 //!     Ok(())

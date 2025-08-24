@@ -6,7 +6,9 @@ use rustls::{
 };
 
 /// Returns a rustls ClientConfig that uses root certificates from the
-/// rustls_native_certs crate.
+/// `rustls-native-certs` crate.
+///
+/// Requires the `native-roots` feature to be enabled.
 #[cfg(feature = "native-roots")]
 #[cfg_attr(docsrs, doc(cfg(feature = "native-roots")))]
 pub fn config_native_roots() -> ClientConfig {
@@ -22,7 +24,9 @@ pub fn config_native_roots() -> ClientConfig {
 }
 
 /// Returns a rustls ClientConfig that uses root certificates from the
-/// webpki_roots crate.
+/// `webpki-roots` crate.
+///
+/// Requires the `webpki-roots` feature to be enabled.
 #[cfg(feature = "webpki-roots")]
 #[cfg_attr(docsrs, doc(cfg(feature = "webpki-roots")))]
 pub fn config_webpki_roots() -> ClientConfig {
