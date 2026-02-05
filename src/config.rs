@@ -81,7 +81,7 @@ impl ServerCertVerifier for NoopTlsVerifier {
     }
 
     fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        vec![
+        static SCHEMES: &[SignatureScheme] = &[
             SignatureScheme::ECDSA_NISTP256_SHA256,
             SignatureScheme::ECDSA_NISTP384_SHA384,
             SignatureScheme::ECDSA_NISTP521_SHA512,
@@ -89,6 +89,7 @@ impl ServerCertVerifier for NoopTlsVerifier {
             SignatureScheme::RSA_PSS_SHA256,
             SignatureScheme::RSA_PSS_SHA384,
             SignatureScheme::RSA_PSS_SHA512,
-        ]
+        ];
+        SCHEMES.to_vec()
     }
 }
