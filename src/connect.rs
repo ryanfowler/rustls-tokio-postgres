@@ -141,6 +141,9 @@ fn tls_server_end_point_digest(cert_der: &[u8]) -> Vec<u8> {
     }
 
     // ECDSA with SHA-2
+    if sig_oid == &OID_SIG_ECDSA_WITH_SHA256 {
+        return Sha256::digest(cert_der).to_vec();
+    }
     if sig_oid == &OID_SIG_ECDSA_WITH_SHA384 {
         return Sha384::digest(cert_der).to_vec();
     }
