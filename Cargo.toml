@@ -27,7 +27,9 @@ webpki-roots = { version = "1.0", optional = true }
 x509-parser = { version = "0.18", optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.47", features = ["macros", "rt-multi-thread"] }
+rcgen = { version = "0.13" }
+tokio = { version = "1.47", features = ["macros", "rt-multi-thread", "net", "io-util"] }
+tokio-rustls = { version = "0.26" }
 
 [package.metadata.docs.rs]
 all-features = true

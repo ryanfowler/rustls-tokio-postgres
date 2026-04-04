@@ -42,11 +42,11 @@ use tokio_postgres::tls::MakeTlsConnect;
 mod config;
 mod connect;
 
-#[cfg(feature = "native-roots")]
-pub use config::{NativeRootsError, config_native_roots};
 pub use config::config_no_verify;
 #[cfg(feature = "webpki-roots")]
 pub use config::config_webpki_roots;
+#[cfg(feature = "native-roots")]
+pub use config::{NativeRootsError, config_native_roots};
 pub use rustls;
 pub use tokio_postgres;
 

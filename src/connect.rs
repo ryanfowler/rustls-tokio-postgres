@@ -163,3 +163,69 @@ fn tls_server_end_point_digest(cert_der: &[u8]) -> Vec<u8> {
 
     Sha256::digest(cert_der).to_vec()
 }
+
+#[cfg(all(test, feature = "channel-binding"))]
+mod tests {
+    use super::tls_server_end_point_digest;
+    use sha2::{Digest, Sha256, Sha384};
+
+    #[test]
+    fn digest_invalid_der_falls_back_to_sha256() {
+        let garbage = b"not a valid certificate";
+        let result = tls_server_end_point_digest(garbage);
+        let expected = Sha256::digest(garbage).to_vec();
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn digest_ecdsa_sha256_cert() {
+        // Generate an ECDSA P-256 cert (signs with ecdsa-with-SHA256).
+        let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).unwrap();
+        let params = rcgen::CertificateParams::new(vec!["test.local".into()]).unwrap();
+        let cert = params.self_signed(&key_pair).unwrap();
+        let der = cert.der().as_ref();
+
+        let result = tls_server_end_point_digest(der);
+        let expected = Sha256::digest(der).to_vec();
+        assert_eq!(result, expected);
+        assert_eq!(result.len(), 32); // SHA-256 = 32 bytes
+    }
+
+    #[test]
+    fn digest_ecdsa_sha384_cert() {
+        let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P384_SHA384).unwrap();
+        let params = rcgen::CertificateParams::new(vec!["test.local".into()]).unwrap();
+        let cert = params.self_signed(&key_pair).unwrap();
+        let der = cert.der().as_ref();
+
+        let result = tls_server_end_point_digest(der);
+        let expected = Sha384::digest(der).to_vec();
+        assert_eq!(result, expected);
+        assert_eq!(result.len(), 48); // SHA-384 = 48 bytes
+    }
+
+    #[test]
+    fn digest_ed25519_cert_falls_back_to_sha256() {
+        // Ed25519 is not in the explicit OID list, so should fall back to SHA-256.
+        let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ED25519).unwrap();
+        let params = rcgen::CertificateParams::new(vec!["test.local".into()]).unwrap();
+        let cert = params.self_signed(&key_pair).unwrap();
+        let der = cert.der().as_ref();
+
+        let result = tls_server_end_point_digest(der);
+        let expected = Sha256::digest(der).to_vec();
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn digest_is_deterministic() {
+        let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).unwrap();
+        let params = rcgen::CertificateParams::new(vec!["test.local".into()]).unwrap();
+        let cert = params.self_signed(&key_pair).unwrap();
+        let der = cert.der().as_ref();
+
+        let a = tls_server_end_point_digest(der);
+        let b = tls_server_end_point_digest(der);
+        assert_eq!(a, b);
+    }
+}
