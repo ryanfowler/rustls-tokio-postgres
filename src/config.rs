@@ -30,9 +30,8 @@ pub fn config_native_roots() -> ClientConfig {
 #[cfg(feature = "webpki-roots")]
 #[cfg_attr(docsrs, doc(cfg(feature = "webpki-roots")))]
 pub fn config_webpki_roots() -> ClientConfig {
-    let root_store = rustls::RootCertStore {
-        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-    };
+    let mut root_store = rustls::RootCertStore::empty();
+    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 
     ClientConfig::builder()
         .with_root_certificates(root_store)
