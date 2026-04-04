@@ -5,22 +5,52 @@ use rustls::{
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
 };
 
+/// An error that may be returned when loading native root certificates.
+#[cfg(feature = "native-roots")]
+#[derive(Debug)]
+pub struct NativeRootsError(Vec<rustls_native_certs::Error>);
+
+#[cfg(feature = "native-roots")]
+impl std::fmt::Display for NativeRootsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "failed to load native root certificates: ")?;
+        for (i, err) in self.0.iter().enumerate() {
+            if i > 0 {
+                write!(f, "; ")?;
+            }
+            write!(f, "{err}")?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "native-roots")]
+impl std::error::Error for NativeRootsError {}
+
 /// Returns a rustls ClientConfig that uses root certificates from the
 /// `rustls-native-certs` crate.
+///
+/// Returns an error if no certificates could be loaded. This can happen due to
+/// file permission issues or missing certificate stores on the system.
 ///
 /// Requires the `native-roots` feature to be enabled.
 #[cfg(feature = "native-roots")]
 #[cfg_attr(docsrs, doc(cfg(feature = "native-roots")))]
-pub fn config_native_roots() -> ClientConfig {
+pub fn config_native_roots() -> Result<ClientConfig, NativeRootsError> {
     let mut root_store = rustls::RootCertStore::empty();
     let results = rustls_native_certs::load_native_certs();
+
+    if results.certs.is_empty() && !results.errors.is_empty() {
+        return Err(NativeRootsError(results.errors));
+    }
+
     for cert in results.certs {
         let _ = root_store.add(cert);
     }
 
-    ClientConfig::builder()
+    Ok(ClientConfig::builder()
         .with_root_certificates(root_store)
-        .with_no_client_auth()
+        .with_no_client_auth())
 }
 
 /// Returns a rustls ClientConfig that uses root certificates from the
