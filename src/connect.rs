@@ -13,8 +13,8 @@ use tokio_rustls::{TlsConnector, client::TlsStream as RustlsTlsStream};
 
 /// Performs the TLS handshake.
 pub struct RustlsConnect {
-    pub config: Arc<ClientConfig>,
-    pub server_name: ServerName<'static>,
+    pub(crate) config: Arc<ClientConfig>,
+    pub(crate) server_name: ServerName<'static>,
 }
 
 impl<S> TlsConnect<S> for RustlsConnect
