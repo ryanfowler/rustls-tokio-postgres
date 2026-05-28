@@ -40,8 +40,10 @@
 
 use std::{io, sync::Arc};
 
-use rustls::ClientConfig;
-use rustls_pki_types::{InvalidDnsNameError, ServerName};
+use rustls::{
+    ClientConfig,
+    pki_types::{InvalidDnsNameError, ServerName},
+};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_postgres::tls::MakeTlsConnect;
 
