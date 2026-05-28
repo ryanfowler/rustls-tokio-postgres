@@ -5,8 +5,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use rustls::ClientConfig;
-use rustls_pki_types::ServerName;
+use rustls::{ClientConfig, pki_types::ServerName};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_postgres::tls::{ChannelBinding, TlsConnect};
 use tokio_rustls::{TlsConnector, client::TlsStream as RustlsTlsStream};
