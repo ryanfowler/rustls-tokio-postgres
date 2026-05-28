@@ -50,7 +50,10 @@ where
             Some(c) => c.as_ref(), // DER bytes of leaf cert
             None => return ChannelBinding::none(),
         };
-        ChannelBinding::tls_server_end_point(tls_server_end_point_digest(der))
+        match tls_server_end_point_digest(der) {
+            Some(digest) => ChannelBinding::tls_server_end_point(digest),
+            None => ChannelBinding::none(),
+        }
     }
 
     #[cfg(not(feature = "channel-binding"))]
@@ -106,62 +109,68 @@ where
 /// Compute RFC 5929 "tls-server-end-point" digest for the cert.
 ///
 /// Rule: use the cert **signature** hash (SHA-256/384/512),
-/// but if it's MD5 or SHA-1 (or unknown), fall back to SHA-256.
+/// but if it's MD5 or SHA-1, fall back to SHA-256.
+///
+/// If the certificate cannot be parsed or the signature algorithm is unknown,
+/// return `None` so callers can opt out of channel binding.
 #[cfg(feature = "channel-binding")]
-fn tls_server_end_point_digest(cert_der: &[u8]) -> Vec<u8> {
+fn tls_server_end_point_digest(cert_der: &[u8]) -> Option<Vec<u8>> {
     use sha2::{Digest, Sha256, Sha384, Sha512};
     use x509_parser::{oid_registry::*, prelude::*, signature_algorithm::RsaSsaPssParams};
 
     // Parse the certificate so we can inspect the signature algorithm OID.
     let Ok((_, x509)) = X509Certificate::from_der(cert_der) else {
-        // If parsing fails, conservative SHA-256 fallback (still deterministic).
-        return Sha256::digest(cert_der).to_vec();
+        return None;
     };
 
     let sig_oid = &x509.signature_algorithm.algorithm;
 
     // RSASSA-PSS: OID 1.2.840.113549.1.1.10, hash is in parameters
     if sig_oid == &OID_PKCS1_RSASSAPSS {
-        if let Some(params_any) = x509.signature_algorithm.parameters()
-            && let Ok(pss) = RsaSsaPssParams::try_from(params_any)
-        {
-            let alg = pss.hash_algorithm_oid();
-            if alg == &OID_NIST_HASH_SHA512 {
-                return Sha512::digest(cert_der).to_vec();
-            }
-            if alg == &OID_NIST_HASH_SHA384 {
-                return Sha384::digest(cert_der).to_vec();
-            }
+        let params_any = x509.signature_algorithm.parameters()?;
+        let pss = RsaSsaPssParams::try_from(params_any).ok()?;
+        let alg = pss.hash_algorithm_oid();
+        if alg == &OID_NIST_HASH_SHA512 {
+            return Some(Sha512::digest(cert_der).to_vec());
         }
-        return Sha256::digest(cert_der).to_vec();
+        if alg == &OID_NIST_HASH_SHA384 {
+            return Some(Sha384::digest(cert_der).to_vec());
+        }
+        if alg == &OID_NIST_HASH_SHA256 || alg == &OID_HASH_SHA1 {
+            return Some(Sha256::digest(cert_der).to_vec());
+        }
+        return None;
     }
 
     // RSA PKCS#1 v1.5 with SHA-2
     if sig_oid == &OID_PKCS1_SHA256WITHRSA {
-        return Sha256::digest(cert_der).to_vec();
+        return Some(Sha256::digest(cert_der).to_vec());
     }
     if sig_oid == &OID_PKCS1_SHA384WITHRSA {
-        return Sha384::digest(cert_der).to_vec();
+        return Some(Sha384::digest(cert_der).to_vec());
     }
     if sig_oid == &OID_PKCS1_SHA512WITHRSA {
-        return Sha512::digest(cert_der).to_vec();
+        return Some(Sha512::digest(cert_der).to_vec());
     }
-    if sig_oid == &OID_PKCS1_MD5WITHRSAENC || sig_oid == &OID_PKCS1_SHA1WITHRSA {
-        return Sha256::digest(cert_der).to_vec();
+    if sig_oid == &OID_PKCS1_MD5WITHRSAENC
+        || sig_oid == &OID_PKCS1_SHA1WITHRSA
+        || sig_oid == &OID_SHA1_WITH_RSA
+    {
+        return Some(Sha256::digest(cert_der).to_vec());
     }
 
     // ECDSA with SHA-2
     if sig_oid == &OID_SIG_ECDSA_WITH_SHA256 {
-        return Sha256::digest(cert_der).to_vec();
+        return Some(Sha256::digest(cert_der).to_vec());
     }
     if sig_oid == &OID_SIG_ECDSA_WITH_SHA384 {
-        return Sha384::digest(cert_der).to_vec();
+        return Some(Sha384::digest(cert_der).to_vec());
     }
     if sig_oid == &OID_SIG_ECDSA_WITH_SHA512 {
-        return Sha512::digest(cert_der).to_vec();
+        return Some(Sha512::digest(cert_der).to_vec());
     }
 
-    Sha256::digest(cert_der).to_vec()
+    None
 }
 
 #[cfg(all(test, feature = "channel-binding"))]
@@ -170,11 +179,10 @@ mod tests {
     use sha2::{Digest, Sha256, Sha384};
 
     #[test]
-    fn digest_invalid_der_falls_back_to_sha256() {
+    fn digest_invalid_der_is_unsupported() {
         let garbage = b"not a valid certificate";
         let result = tls_server_end_point_digest(garbage);
-        let expected = Sha256::digest(garbage).to_vec();
-        assert_eq!(result, expected);
+        assert_eq!(result, None);
     }
 
     #[test]
@@ -185,7 +193,7 @@ mod tests {
         let cert = params.self_signed(&key_pair).unwrap();
         let der = cert.der().as_ref();
 
-        let result = tls_server_end_point_digest(der);
+        let result = tls_server_end_point_digest(der).unwrap();
         let expected = Sha256::digest(der).to_vec();
         assert_eq!(result, expected);
         assert_eq!(result.len(), 32); // SHA-256 = 32 bytes
@@ -198,23 +206,21 @@ mod tests {
         let cert = params.self_signed(&key_pair).unwrap();
         let der = cert.der().as_ref();
 
-        let result = tls_server_end_point_digest(der);
+        let result = tls_server_end_point_digest(der).unwrap();
         let expected = Sha384::digest(der).to_vec();
         assert_eq!(result, expected);
         assert_eq!(result.len(), 48); // SHA-384 = 48 bytes
     }
 
     #[test]
-    fn digest_ed25519_cert_falls_back_to_sha256() {
-        // Ed25519 is not in the explicit OID list, so should fall back to SHA-256.
+    fn digest_ed25519_cert_is_unsupported() {
         let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ED25519).unwrap();
         let params = rcgen::CertificateParams::new(vec!["test.local".into()]).unwrap();
         let cert = params.self_signed(&key_pair).unwrap();
         let der = cert.der().as_ref();
 
         let result = tls_server_end_point_digest(der);
-        let expected = Sha256::digest(der).to_vec();
-        assert_eq!(result, expected);
+        assert_eq!(result, None);
     }
 
     #[test]
