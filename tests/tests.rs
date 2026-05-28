@@ -1,8 +1,8 @@
 use std::io;
 use std::sync::Arc;
 
+use rustls_tokio_postgres::MakeRustlsConnect;
 use rustls_tokio_postgres::rustls::ClientConfig;
-use rustls_tokio_postgres::{MakeRustlsConnect, config_no_verify};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_postgres::tls::{MakeTlsConnect, TlsConnect};
@@ -14,6 +14,8 @@ use tokio_postgres::tls::{MakeTlsConnect, TlsConnect};
 /// Generate a self-signed certificate for `localhost` and return
 /// (server_config, client_config).
 fn test_tls_configs() -> (rustls::ServerConfig, ClientConfig) {
+    install_test_crypto_provider();
+
     let key_pair = rcgen::KeyPair::generate().unwrap();
     let cert_params = rcgen::CertificateParams::new(vec!["localhost".into()]).unwrap();
     let cert = cert_params.self_signed(&key_pair).unwrap();
@@ -34,6 +36,26 @@ fn test_tls_configs() -> (rustls::ServerConfig, ClientConfig) {
 
     (server_config, client_config)
 }
+
+fn config_no_verify() -> ClientConfig {
+    install_test_crypto_provider();
+    rustls_tokio_postgres::config_no_verify()
+}
+
+#[cfg(all(feature = "aws-lc-rs", feature = "ring"))]
+fn install_test_crypto_provider() {
+    use std::sync::Once;
+
+    static INSTALL_PROVIDER: Once = Once::new();
+    INSTALL_PROVIDER.call_once(|| {
+        rustls_tokio_postgres::rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .expect("failed to install rustls crypto provider for tests");
+    });
+}
+
+#[cfg(not(all(feature = "aws-lc-rs", feature = "ring")))]
+fn install_test_crypto_provider() {}
 
 /// Spin up a TLS echo server on a random port. Returns the local address.
 async fn start_echo_server(server_config: rustls::ServerConfig) -> std::net::SocketAddr {

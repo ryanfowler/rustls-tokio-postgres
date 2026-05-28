@@ -209,6 +209,8 @@ mod tests {
 
     #[test]
     fn config_native_roots_succeeds_when_at_least_one_root_is_added() {
+        install_test_crypto_provider();
+
         let valid_cert = self_signed_cert_der();
         let invalid_cert = CertificateDer::from(vec![0]);
 
@@ -222,4 +224,19 @@ mod tests {
 
         CertificateDer::from(cert.der().to_vec())
     }
+
+    #[cfg(all(feature = "aws-lc-rs", feature = "ring"))]
+    fn install_test_crypto_provider() {
+        use std::sync::Once;
+
+        static INSTALL_PROVIDER: Once = Once::new();
+        INSTALL_PROVIDER.call_once(|| {
+            rustls::crypto::aws_lc_rs::default_provider()
+                .install_default()
+                .expect("failed to install rustls crypto provider for tests");
+        });
+    }
+
+    #[cfg(not(all(feature = "aws-lc-rs", feature = "ring")))]
+    fn install_test_crypto_provider() {}
 }

@@ -29,8 +29,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Features
 
+- **aws-lc-rs**: enables rustls' AWS-LC-RS crypto provider. Enabled by default.
 - **channel-binding**: enables TLS channel binding, if supported.
+- **fips**: enables rustls' AWS-LC-RS FIPS provider support.
+- **logging**: enables rustls logging. Enabled by default.
 - **native-roots**: enables a function for creating a `rustls::ClientConfig` using the rustls-native-certs crate.
+- **prefer-post-quantum**: enables rustls' post-quantum-preferred AWS-LC-RS key exchange ordering. Enabled by default.
+- **ring**: enables rustls' ring crypto provider. Use `default-features = false` if you want ring without AWS-LC-RS.
+- **tls12**: enables rustls TLS 1.2 support. Enabled by default.
 - **webpki-roots**: enables a function for creating a `rustls::ClientConfig` using the webpki-roots crate.
 
 ## License
