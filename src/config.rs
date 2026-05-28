@@ -8,19 +8,49 @@ use rustls::{
 /// An error that may be returned when loading native root certificates.
 #[cfg(feature = "native-roots")]
 #[derive(Debug)]
-pub struct NativeRootsError(Vec<rustls_native_certs::Error>);
+pub struct NativeRootsError(NativeRootsErrorKind);
+
+#[cfg(feature = "native-roots")]
+#[derive(Debug)]
+enum NativeRootsErrorKind {
+    Load(Vec<rustls_native_certs::Error>),
+    NoUsableRootsLoaded,
+}
+
+#[cfg(feature = "native-roots")]
+impl NativeRootsError {
+    fn load(errors: Vec<rustls_native_certs::Error>) -> Self {
+        Self(NativeRootsErrorKind::Load(errors))
+    }
+
+    fn no_usable_roots_loaded() -> Self {
+        Self(NativeRootsErrorKind::NoUsableRootsLoaded)
+    }
+}
 
 #[cfg(feature = "native-roots")]
 impl std::fmt::Display for NativeRootsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "failed to load native root certificates: ")?;
-        for (i, err) in self.0.iter().enumerate() {
-            if i > 0 {
-                write!(f, "; ")?;
+        match &self.0 {
+            NativeRootsErrorKind::Load(errors) => {
+                write!(f, "failed to load native root certificates")?;
+                if errors.is_empty() {
+                    return Ok(());
+                }
+
+                write!(f, ": ")?;
+                for (i, err) in errors.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, "; ")?;
+                    }
+                    write!(f, "{err}")?;
+                }
+                Ok(())
             }
-            write!(f, "{err}")?;
+            NativeRootsErrorKind::NoUsableRootsLoaded => {
+                write!(f, "no usable roots loaded from native certificate store")
+            }
         }
-        Ok(())
     }
 }
 
@@ -30,22 +60,38 @@ impl std::error::Error for NativeRootsError {}
 /// Returns a rustls ClientConfig that uses root certificates from the
 /// `rustls-native-certs` crate.
 ///
-/// Returns an error if no certificates could be loaded. This can happen due to
-/// file permission issues or missing certificate stores on the system.
+/// Returns an error if no usable certificates could be loaded into the root
+/// store. This can happen due to file permission issues, missing certificate
+/// stores, or certificates that rustls rejects.
 ///
 /// Requires the `native-roots` feature to be enabled.
 #[cfg(feature = "native-roots")]
 #[cfg_attr(docsrs, doc(cfg(feature = "native-roots")))]
 pub fn config_native_roots() -> Result<ClientConfig, NativeRootsError> {
-    let mut root_store = rustls::RootCertStore::empty();
     let results = rustls_native_certs::load_native_certs();
+    config_native_roots_from_parts(results.certs, results.errors)
+}
 
-    if results.certs.is_empty() && !results.errors.is_empty() {
-        return Err(NativeRootsError(results.errors));
+#[cfg(feature = "native-roots")]
+fn config_native_roots_from_parts(
+    certs: Vec<rustls::pki_types::CertificateDer<'static>>,
+    errors: Vec<rustls_native_certs::Error>,
+) -> Result<ClientConfig, NativeRootsError> {
+    let mut root_store = rustls::RootCertStore::empty();
+
+    if certs.is_empty() && !errors.is_empty() {
+        return Err(NativeRootsError::load(errors));
     }
 
-    for cert in results.certs {
-        let _ = root_store.add(cert);
+    let mut added_roots = 0;
+    for cert in certs {
+        if root_store.add(cert).is_ok() {
+            added_roots += 1;
+        }
+    }
+
+    if added_roots == 0 {
+        return Err(NativeRootsError::no_usable_roots_loaded());
     }
 
     Ok(ClientConfig::builder()
@@ -124,5 +170,56 @@ impl ServerCertVerifier for NoopTlsVerifier {
             SignatureScheme::ED448,
         ];
         SCHEMES.to_vec()
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "native-roots")]
+mod tests {
+    use rustls::pki_types::CertificateDer;
+
+    use super::*;
+
+    #[test]
+    fn config_native_roots_errors_when_no_roots_are_available() {
+        let err = match config_native_roots_from_parts(Vec::new(), Vec::new()) {
+            Ok(_) => panic!("empty native root result should fail"),
+            Err(err) => err,
+        };
+
+        assert_eq!(
+            err.to_string(),
+            "no usable roots loaded from native certificate store"
+        );
+    }
+
+    #[test]
+    fn config_native_roots_errors_when_all_roots_are_rejected() {
+        let invalid_cert = CertificateDer::from(vec![0]);
+        let err = match config_native_roots_from_parts(vec![invalid_cert], Vec::new()) {
+            Ok(_) => panic!("native roots rejected by rustls should fail"),
+            Err(err) => err,
+        };
+
+        assert_eq!(
+            err.to_string(),
+            "no usable roots loaded from native certificate store"
+        );
+    }
+
+    #[test]
+    fn config_native_roots_succeeds_when_at_least_one_root_is_added() {
+        let valid_cert = self_signed_cert_der();
+        let invalid_cert = CertificateDer::from(vec![0]);
+
+        assert!(config_native_roots_from_parts(vec![invalid_cert, valid_cert], Vec::new()).is_ok());
+    }
+
+    fn self_signed_cert_der() -> CertificateDer<'static> {
+        let key_pair = rcgen::KeyPair::generate().unwrap();
+        let params = rcgen::CertificateParams::new(vec!["localhost".into()]).unwrap();
+        let cert = params.self_signed(&key_pair).unwrap();
+
+        CertificateDer::from(cert.der().to_vec())
     }
 }
