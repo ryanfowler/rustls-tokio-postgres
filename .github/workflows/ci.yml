@@ -6,12 +6,16 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   fmt:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -21,23 +25,125 @@ jobs:
 
   clippy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - run: cargo clippy --all-features -- -D warnings
+      - run: cargo clippy --all-targets --all-features -- -D warnings
 
-  build:
+  docs:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RUSTDOCFLAGS: -D warnings
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build
+      - run: cargo doc --all-features --no-deps
 
-  test:
+  feature-combinations:
+    name: test features (${{ matrix.name }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            command: cargo test --all-targets
+          - name: all-features
+            command: cargo test --all-targets --all-features
+          - name: no-default-features
+            command: cargo check --all-targets --no-default-features
+          - name: aws-lc-rs
+            command: cargo test --all-targets --no-default-features --features aws-lc-rs
+          - name: aws-lc-rs-channel-binding
+            command: cargo test --all-targets --no-default-features --features aws-lc-rs,channel-binding
+          - name: aws-lc-rs-roots
+            command: cargo test --all-targets --no-default-features --features aws-lc-rs,native-roots,webpki-roots,tls12,logging
+          - name: fips
+            command: cargo test --all-targets --no-default-features --features fips
+          - name: ring
+            command: cargo test --all-targets --no-default-features --features ring
+          - name: ring-channel-binding
+            command: cargo test --all-targets --no-default-features --features ring,channel-binding
+          - name: ring-roots
+            command: cargo test --all-targets --no-default-features --features ring,native-roots,webpki-roots,tls12,logging
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --all-features
+      - run: ${{ matrix.command }}
+
+  postgres-scram-plus:
+    name: PostgreSQL SCRAM-PLUS (${{ matrix.postgres }}, ${{ matrix.provider.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ["17", "18"]
+        provider:
+          - name: aws-lc-rs
+            features: aws-lc-rs,channel-binding
+          - name: ring
+            features: ring,channel-binding
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Generate PostgreSQL TLS certificate
+        run: |
+          mkdir -p postgres-certs
+          openssl req \
+            -new \
+            -x509 \
+            -days 1 \
+            -nodes \
+            -subj "/CN=localhost" \
+            -keyout postgres-certs/server.key \
+            -out postgres-certs/server.crt
+          postgres_uid="$(docker run --rm --entrypoint id postgres:${{ matrix.postgres }} -u postgres)"
+          postgres_gid="$(docker run --rm --entrypoint id postgres:${{ matrix.postgres }} -g postgres)"
+          sudo chown "${postgres_uid}:${postgres_gid}" postgres-certs/server.key postgres-certs/server.crt
+          sudo chmod 600 postgres-certs/server.key
+          sudo chmod 644 postgres-certs/server.crt
+
+      - name: Start PostgreSQL with TLS and SCRAM
+        run: |
+          docker run \
+            --detach \
+            --name postgres-scram-plus \
+            --env POSTGRES_DB=postgres \
+            --env POSTGRES_USER=postgres \
+            --env POSTGRES_PASSWORD=postgres \
+            --env POSTGRES_INITDB_ARGS="--auth-host=scram-sha-256" \
+            --publish 5432:5432 \
+            --volume "$PWD/postgres-certs:/var/lib/postgresql/certs:ro" \
+            postgres:${{ matrix.postgres }} \
+            -c ssl=on \
+            -c ssl_cert_file=/var/lib/postgresql/certs/server.crt \
+            -c ssl_key_file=/var/lib/postgresql/certs/server.key \
+            -c password_encryption=scram-sha-256
+
+          for _ in {1..60}; do
+            if docker exec postgres-scram-plus pg_isready -U postgres -d postgres; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          docker logs postgres-scram-plus
+          exit 1
+
+      - name: Verify PostgreSQL SCRAM-PLUS
+        env:
+          PG_SCRAM_PLUS_TEST_CONFIG: host=127.0.0.1 port=5432 user=postgres password=postgres dbname=postgres sslmode=require channel_binding=require connect_timeout=10
+        run: cargo test --test postgres_scram_plus --no-default-features --features ${{ matrix.provider.features }} -- --nocapture
+
+      - name: Stop PostgreSQL
+        if: always()
+        run: |
+          docker logs postgres-scram-plus || true
+          docker rm -f postgres-scram-plus || true
