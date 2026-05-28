@@ -115,6 +115,18 @@ pub fn config_webpki_roots() -> ClientConfig {
 }
 
 /// Returns a rustls ClientConfig that does not verify the server certificate.
+///
+/// # Dangerous
+///
+/// This disables server certificate and hostname verification. TLS traffic is
+/// still encrypted, but the client no longer knows whether it is connected to
+/// the intended PostgreSQL server, which makes man-in-the-middle attacks
+/// possible.
+///
+/// Use this only for local development, tests, or tightly controlled
+/// environments where server identity is verified by another trusted mechanism.
+/// Prefer `config_native_roots`, `config_webpki_roots`, or a custom
+/// [`ClientConfig`] with an explicit root store for production systems.
 pub fn config_no_verify() -> ClientConfig {
     ClientConfig::builder()
         .dangerous()

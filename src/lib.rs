@@ -3,27 +3,84 @@
 
 //! A [`tokio_postgres`] TLS connector backed by [`rustls`].
 //!
-//! # Example
+//! # Usage
+//!
+//! Prefer a verifying TLS configuration for normal application code. This crate
+//! provides helpers for the OS-native trust store and the Mozilla WebPKI trust
+//! store behind optional features.
+//!
+//! ## Native roots
+//!
+//! Enable the `native-roots` feature to use the operating system's native
+//! certificate store.
+//!
+//! ```rust,no_run
+//! # #[cfg(feature = "native-roots")]
+//! # {
+//! use rustls_tokio_postgres::{config_native_roots, MakeRustlsConnect};
+//! use tokio_postgres::connect;
+//!
+//! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+//! static CONFIG: &str = "host=localhost user=postgres";
+//!
+//! let tls = MakeRustlsConnect::new(config_native_roots()?);
+//!
+//! let (_client, _conn) = connect(CONFIG, tls).await?;
+//!
+//! Ok(())
+//! # }
+//! # }
+//! ```
+//!
+//! ## WebPKI roots
+//!
+//! Enable the `webpki-roots` feature to use the trust anchors from the
+//! `webpki-roots` crate.
+//!
+//! ```rust,no_run
+//! # #[cfg(feature = "webpki-roots")]
+//! # {
+//! use rustls_tokio_postgres::{config_webpki_roots, MakeRustlsConnect};
+//! use tokio_postgres::connect;
+//!
+//! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+//! static CONFIG: &str = "host=localhost user=postgres";
+//!
+//! let tls = MakeRustlsConnect::new(config_webpki_roots());
+//!
+//! let (_client, _conn) = connect(CONFIG, tls).await?;
+//!
+//! Ok(())
+//! # }
+//! # }
+//! ```
+//!
+//! ## Dangerous fallback: no certificate verification
+//!
+//! [`config_no_verify()`] is dangerous because it disables server certificate
+//! and hostname verification. TLS still encrypts traffic, but the client no
+//! longer knows whether it is connected to the intended PostgreSQL server,
+//! which makes man-in-the-middle attacks possible.
+//!
+//! Use this only for local development, tests, or tightly controlled
+//! environments where server identity is verified by another trusted mechanism.
+//! Prefer `config_native_roots()`, `config_webpki_roots()`, or a custom
+//! [`rustls::ClientConfig`] with an explicit root store for production systems.
 //!
 //! ```rust,no_run
 //! use rustls_tokio_postgres::{config_no_verify, MakeRustlsConnect};
-//! use tokio_postgres::{connect, Config};
+//! use tokio_postgres::connect;
 //!
-//! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     static CONFIG: &str = "host=localhost user=postgres";
+//! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+//! static CONFIG: &str = "host=localhost user=postgres";
 //!
-//!     // This rustls config does not verify the server certificate.
-//!     // You can construct your own rustls ClientConfig, or enable the
-//!     // `native-roots` or `webpki-roots` features for other config helpers.
-//!     let config = config_no_verify();
+//! let config = config_no_verify();
 //!
-//!     // Create the client with the TLS configuration.
-//!     let tls = MakeRustlsConnect::new(config);
-//!     let (_client, _conn) = connect(CONFIG, tls).await?;
+//! let tls = MakeRustlsConnect::new(config);
+//! let (_client, _conn) = connect(CONFIG, tls).await?;
 //!
-//!     Ok(())
-//! }
+//! Ok(())
+//! # }
 //! ```
 //!
 //! # Features
