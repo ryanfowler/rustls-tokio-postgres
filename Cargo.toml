@@ -10,26 +10,32 @@ keywords = ["tokio-postgres", "rustls", "postgres", "sql"]
 categories = ["database"]
 
 [features]
-default = []
+default = ["aws-lc-rs", "logging", "prefer-post-quantum", "tls12"]
+aws-lc-rs = ["rustls/aws-lc-rs", "tokio-rustls/aws-lc-rs"]
 channel-binding = ["dep:sha2", "dep:x509-parser"]
+fips = ["aws-lc-rs", "rustls/fips", "tokio-rustls/fips"]
+logging = ["rustls/logging", "tokio-rustls/logging"]
 native-roots = ["dep:rustls-native-certs"]
+prefer-post-quantum = ["aws-lc-rs", "rustls/prefer-post-quantum"]
+ring = ["rustls/ring", "tokio-rustls/ring"]
+tls12 = ["rustls/tls12", "tokio-rustls/tls12"]
 webpki-roots = ["dep:webpki-roots"]
 
 [dependencies]
-rustls = { version = "0.23" }
+rustls = { version = "0.23", default-features = false, features = ["std"] }
 rustls-native-certs = { version = "0.8", optional = true }
 rustls-pki-types = { version = "1.12" }
 sha2 = { version = "0.11", optional = true }
 tokio = { version = "1.47" }
 tokio-postgres = { version = "0.7" }
-tokio-rustls = { version = "0.26" }
+tokio-rustls = { version = "0.26", default-features = false }
 webpki-roots = { version = "1.0", optional = true }
 x509-parser = { version = "0.18", optional = true }
 
 [dev-dependencies]
 rcgen = { version = "0.14" }
 tokio = { version = "1.47", features = ["io-util", "macros", "net", "rt-multi-thread"] }
-tokio-rustls = { version = "0.26" }
+tokio-rustls = { version = "0.26", default-features = false }
 
 [package.metadata.docs.rs]
 all-features = true
