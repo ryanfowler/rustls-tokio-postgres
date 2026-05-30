@@ -1,9 +1,59 @@
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use rustls::{
     ClientConfig, Error as TlsError, SignatureScheme,
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
+    pki_types::{
+        CertificateDer,
+        pem::{Error as PemError, PemObject},
+    },
 };
+
+/// An error returned when creating a [`ClientConfig`] from a CA certificate file.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum CaCertError {
+    /// The CA certificate file could not be read or parsed as PEM.
+    Pem(PemError),
+    /// The file did not contain any PEM certificates.
+    NoCertificates,
+    /// A certificate could not be added to the root store.
+    Tls(TlsError),
+}
+
+impl std::fmt::Display for CaCertError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Pem(err) => write!(f, "failed to read CA certificate file: {err}"),
+            Self::NoCertificates => {
+                write!(f, "CA certificate file did not contain any certificates")
+            }
+            Self::Tls(err) => write!(f, "failed to configure CA certificate: {err}"),
+        }
+    }
+}
+
+impl std::error::Error for CaCertError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Pem(err) => Some(err),
+            Self::NoCertificates => None,
+            Self::Tls(err) => Some(err),
+        }
+    }
+}
+
+impl From<PemError> for CaCertError {
+    fn from(err: PemError) -> Self {
+        Self::Pem(err)
+    }
+}
+
+impl From<TlsError> for CaCertError {
+    fn from(err: TlsError) -> Self {
+        Self::Tls(err)
+    }
+}
 
 /// An error returned by the deprecated `config_native_roots` helper.
 #[cfg(feature = "native-roots")]
@@ -69,6 +119,30 @@ pub fn config_webpki_roots() -> ClientConfig {
         .with_no_client_auth()
 }
 
+/// Returns a rustls ClientConfig that trusts CA certificates from a PEM file.
+///
+/// This is useful for services such as cloud database providers that publish a
+/// CA certificate or bundle for verifying their database servers. Hostname
+/// verification is still enabled; the certificates are used only as trust
+/// anchors.
+pub fn config_from_ca_cert(path: impl AsRef<Path>) -> Result<ClientConfig, CaCertError> {
+    let mut root_store = rustls::RootCertStore::empty();
+    let mut count = 0;
+
+    for ca_cert in CertificateDer::pem_file_iter(path)? {
+        root_store.add(ca_cert?)?;
+        count += 1;
+    }
+
+    if count == 0 {
+        return Err(CaCertError::NoCertificates);
+    }
+
+    Ok(ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth())
+}
+
 /// Returns a rustls ClientConfig that does not verify the server certificate.
 ///
 /// # Dangerous
@@ -80,8 +154,9 @@ pub fn config_webpki_roots() -> ClientConfig {
 ///
 /// Use this only for local development, tests, or tightly controlled
 /// environments where server identity is verified by another trusted mechanism.
-/// Prefer `config_platform_verifier`, `config_webpki_roots`, or a custom
-/// [`ClientConfig`] with an explicit root store for production systems.
+/// Prefer `config_from_ca_cert`, `config_platform_verifier`,
+/// `config_webpki_roots`, or a custom [`ClientConfig`] with an explicit root
+/// store for production systems.
 pub fn config_no_verify() -> ClientConfig {
     ClientConfig::builder()
         .dangerous()

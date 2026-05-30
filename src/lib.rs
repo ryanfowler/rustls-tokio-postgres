@@ -6,8 +6,8 @@
 //! # Usage
 //!
 //! Prefer a verifying TLS configuration for normal application code. This crate
-//! provides helpers for the platform verifier and the Mozilla WebPKI trust store
-//! behind optional features.
+//! provides helpers for explicit CA certificate files, the platform verifier,
+//! and the Mozilla WebPKI trust store behind optional features.
 //!
 //! ## Platform verifier
 //!
@@ -55,6 +55,26 @@
 //! # }
 //! ```
 //!
+//! ## CA certificate
+//!
+//! Use [`config_from_ca_cert()`] when a provider publishes a CA certificate file
+//! or bundle for verifying its database servers.
+//!
+//! ```rust,no_run
+//! use rustls_tokio_postgres::{config_from_ca_cert, MakeRustlsConnect};
+//! use tokio_postgres::connect;
+//!
+//! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+//! static CONFIG: &str = "host=localhost user=postgres";
+//!
+//! let tls = MakeRustlsConnect::new(config_from_ca_cert("ca.pem")?);
+//!
+//! let (_client, _conn) = connect(CONFIG, tls).await?;
+//!
+//! Ok(())
+//! # }
+//! ```
+//!
 //! ## Dangerous fallback: no certificate verification
 //!
 //! [`config_no_verify()`] is dangerous because it disables server certificate
@@ -64,8 +84,9 @@
 //!
 //! Use this only for local development, tests, or tightly controlled
 //! environments where server identity is verified by another trusted mechanism.
-//! Prefer `config_platform_verifier()`, `config_webpki_roots()`, or a custom
-//! [`rustls::ClientConfig`] with an explicit root store for production systems.
+//! Prefer `config_from_ca_cert()`, `config_platform_verifier()`,
+//! `config_webpki_roots()`, or a custom [`rustls::ClientConfig`] with an
+//! explicit root store for production systems.
 //!
 //! ```rust,no_run
 //! use rustls_tokio_postgres::{config_no_verify, MakeRustlsConnect};
@@ -113,6 +134,7 @@ pub use config::config_no_verify;
 pub use config::config_platform_verifier;
 #[cfg(feature = "webpki-roots")]
 pub use config::config_webpki_roots;
+pub use config::{CaCertError, config_from_ca_cert};
 #[cfg(feature = "native-roots")]
 #[allow(deprecated)]
 pub use config::{NativeRootsError, config_native_roots};
