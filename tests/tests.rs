@@ -1,5 +1,6 @@
 use std::io;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rustls_tokio_postgres::MakeRustlsConnect;
 use rustls_tokio_postgres::rustls::ClientConfig;
@@ -28,13 +29,23 @@ fn test_tls_configs() -> (rustls::ServerConfig, ClientConfig) {
         .with_single_cert(vec![cert_der.clone()], key_der)
         .unwrap();
 
-    let mut root_store = rustls::RootCertStore::empty();
-    root_store.add(cert_der).unwrap();
-    let client_config = ClientConfig::builder()
-        .with_root_certificates(root_store)
-        .with_no_client_auth();
+    let ca_cert_path = write_temp_ca_file(cert.pem());
+    let client_config = rustls_tokio_postgres::config_from_ca_cert(&ca_cert_path).unwrap();
+    std::fs::remove_file(ca_cert_path).unwrap();
 
     (server_config, client_config)
+}
+
+fn write_temp_ca_file(contents: impl AsRef<[u8]>) -> std::path::PathBuf {
+    static NEXT_CA_FILE: AtomicUsize = AtomicUsize::new(0);
+
+    let path = std::env::temp_dir().join(format!(
+        "rustls-tokio-postgres-ca-{}-{}.pem",
+        std::process::id(),
+        NEXT_CA_FILE.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::write(&path, contents).unwrap();
+    path
 }
 
 fn config_no_verify() -> ClientConfig {
@@ -156,13 +167,21 @@ fn make_tls_connect_ipv6_succeeds() {
 }
 
 // ---------------------------------------------------------------------------
-// config_no_verify – smoke test
+// Config helpers – smoke tests
 // ---------------------------------------------------------------------------
 
 #[test]
 fn config_no_verify_returns_usable_config() {
     let config = config_no_verify();
     let _ = MakeRustlsConnect::new(config);
+}
+
+#[test]
+fn config_from_ca_cert_rejects_invalid_cert_file() {
+    let ca_cert_path = write_temp_ca_file("not a certificate");
+
+    assert!(rustls_tokio_postgres::config_from_ca_cert(&ca_cert_path).is_err());
+    std::fs::remove_file(ca_cert_path).unwrap();
 }
 
 // ---------------------------------------------------------------------------
