@@ -5,98 +5,53 @@ use rustls::{
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
 };
 
-/// An error that may be returned when loading native root certificates.
+/// An error returned by the deprecated `config_native_roots` helper.
 #[cfg(feature = "native-roots")]
 #[derive(Debug)]
-pub struct NativeRootsError(NativeRootsErrorKind);
-
-#[cfg(feature = "native-roots")]
-#[derive(Debug)]
-enum NativeRootsErrorKind {
-    Load(Vec<rustls_native_certs::Error>),
-    NoUsableRootsLoaded,
-}
-
-#[cfg(feature = "native-roots")]
-impl NativeRootsError {
-    fn load(errors: Vec<rustls_native_certs::Error>) -> Self {
-        Self(NativeRootsErrorKind::Load(errors))
-    }
-
-    fn no_usable_roots_loaded() -> Self {
-        Self(NativeRootsErrorKind::NoUsableRootsLoaded)
-    }
-}
+pub struct NativeRootsError(TlsError);
 
 #[cfg(feature = "native-roots")]
 impl std::fmt::Display for NativeRootsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.0 {
-            NativeRootsErrorKind::Load(errors) => {
-                write!(f, "failed to load native root certificates")?;
-                if errors.is_empty() {
-                    return Ok(());
-                }
-
-                write!(f, ": ")?;
-                for (i, err) in errors.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, "; ")?;
-                    }
-                    write!(f, "{err}")?;
-                }
-                Ok(())
-            }
-            NativeRootsErrorKind::NoUsableRootsLoaded => {
-                write!(f, "no usable roots loaded from native certificate store")
-            }
-        }
+        write!(
+            f,
+            "failed to configure platform certificate verifier: {}",
+            self.0
+        )
     }
 }
 
 #[cfg(feature = "native-roots")]
 impl std::error::Error for NativeRootsError {}
 
-/// Returns a rustls ClientConfig that uses root certificates from the
-/// `rustls-native-certs` crate.
+/// Returns a rustls ClientConfig that uses certificate verification provided by
+/// the current platform.
 ///
-/// Returns an error if no usable certificates could be loaded into the root
-/// store. This can happen due to file permission issues, missing certificate
-/// stores, or certificates that rustls rejects.
+/// On platforms with a native verifier, this uses the operating system's
+/// certificate verification facilities. On other platforms, the
+/// `rustls-platform-verifier` crate falls back to the best available WebPKI
+/// verifier for that target.
+///
+/// Requires the `platform-verifier` feature to be enabled.
+#[cfg(feature = "platform-verifier")]
+#[cfg_attr(docsrs, doc(cfg(feature = "platform-verifier")))]
+pub fn config_platform_verifier() -> Result<ClientConfig, TlsError> {
+    use rustls_platform_verifier::BuilderVerifierExt as _;
+
+    Ok(ClientConfig::builder()
+        .with_platform_verifier()?
+        .with_no_client_auth())
+}
+
+/// Returns a rustls ClientConfig that uses certificate verification provided by
+/// the current platform.
 ///
 /// Requires the `native-roots` feature to be enabled.
+#[deprecated(note = "use config_platform_verifier() with the platform-verifier feature instead")]
 #[cfg(feature = "native-roots")]
 #[cfg_attr(docsrs, doc(cfg(feature = "native-roots")))]
 pub fn config_native_roots() -> Result<ClientConfig, NativeRootsError> {
-    let results = rustls_native_certs::load_native_certs();
-    config_native_roots_from_parts(results.certs, results.errors)
-}
-
-#[cfg(feature = "native-roots")]
-fn config_native_roots_from_parts(
-    certs: Vec<rustls::pki_types::CertificateDer<'static>>,
-    errors: Vec<rustls_native_certs::Error>,
-) -> Result<ClientConfig, NativeRootsError> {
-    let mut root_store = rustls::RootCertStore::empty();
-
-    if certs.is_empty() && !errors.is_empty() {
-        return Err(NativeRootsError::load(errors));
-    }
-
-    let mut added_roots = 0;
-    for cert in certs {
-        if root_store.add(cert).is_ok() {
-            added_roots += 1;
-        }
-    }
-
-    if added_roots == 0 {
-        return Err(NativeRootsError::no_usable_roots_loaded());
-    }
-
-    Ok(ClientConfig::builder()
-        .with_root_certificates(root_store)
-        .with_no_client_auth())
+    config_platform_verifier().map_err(NativeRootsError)
 }
 
 /// Returns a rustls ClientConfig that uses root certificates from the
@@ -125,7 +80,7 @@ pub fn config_webpki_roots() -> ClientConfig {
 ///
 /// Use this only for local development, tests, or tightly controlled
 /// environments where server identity is verified by another trusted mechanism.
-/// Prefer `config_native_roots`, `config_webpki_roots`, or a custom
+/// Prefer `config_platform_verifier`, `config_webpki_roots`, or a custom
 /// [`ClientConfig`] with an explicit root store for production systems.
 pub fn config_no_verify() -> ClientConfig {
     ClientConfig::builder()
@@ -183,72 +138,4 @@ impl ServerCertVerifier for NoopTlsVerifier {
         ];
         SCHEMES.to_vec()
     }
-}
-
-#[cfg(test)]
-#[cfg(feature = "native-roots")]
-mod tests {
-    use rustls::pki_types::CertificateDer;
-
-    use super::*;
-
-    #[test]
-    fn config_native_roots_errors_when_no_roots_are_available() {
-        let err = match config_native_roots_from_parts(Vec::new(), Vec::new()) {
-            Ok(_) => panic!("empty native root result should fail"),
-            Err(err) => err,
-        };
-
-        assert_eq!(
-            err.to_string(),
-            "no usable roots loaded from native certificate store"
-        );
-    }
-
-    #[test]
-    fn config_native_roots_errors_when_all_roots_are_rejected() {
-        let invalid_cert = CertificateDer::from(vec![0]);
-        let err = match config_native_roots_from_parts(vec![invalid_cert], Vec::new()) {
-            Ok(_) => panic!("native roots rejected by rustls should fail"),
-            Err(err) => err,
-        };
-
-        assert_eq!(
-            err.to_string(),
-            "no usable roots loaded from native certificate store"
-        );
-    }
-
-    #[test]
-    fn config_native_roots_succeeds_when_at_least_one_root_is_added() {
-        install_test_crypto_provider();
-
-        let valid_cert = self_signed_cert_der();
-        let invalid_cert = CertificateDer::from(vec![0]);
-
-        assert!(config_native_roots_from_parts(vec![invalid_cert, valid_cert], Vec::new()).is_ok());
-    }
-
-    fn self_signed_cert_der() -> CertificateDer<'static> {
-        let key_pair = rcgen::KeyPair::generate().unwrap();
-        let params = rcgen::CertificateParams::new(vec!["localhost".into()]).unwrap();
-        let cert = params.self_signed(&key_pair).unwrap();
-
-        CertificateDer::from(cert.der().to_vec())
-    }
-
-    #[cfg(all(feature = "aws-lc-rs", feature = "ring"))]
-    fn install_test_crypto_provider() {
-        use std::sync::Once;
-
-        static INSTALL_PROVIDER: Once = Once::new();
-        INSTALL_PROVIDER.call_once(|| {
-            rustls::crypto::aws_lc_rs::default_provider()
-                .install_default()
-                .expect("failed to install rustls crypto provider for tests");
-        });
-    }
-
-    #[cfg(not(all(feature = "aws-lc-rs", feature = "ring")))]
-    fn install_test_crypto_provider() {}
 }

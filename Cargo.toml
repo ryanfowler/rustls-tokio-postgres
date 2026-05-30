@@ -15,7 +15,8 @@ aws-lc-rs = ["rustls/aws-lc-rs", "tokio-rustls/aws-lc-rs"]
 channel-binding = ["dep:sha2", "dep:x509-parser"]
 fips = ["aws-lc-rs", "rustls/fips", "tokio-rustls/fips"]
 logging = ["rustls/logging", "tokio-rustls/logging"]
-native-roots = ["dep:rustls-native-certs"]
+native-roots = ["platform-verifier"]
+platform-verifier = ["dep:rustls-platform-verifier"]
 prefer-post-quantum = ["aws-lc-rs", "rustls/prefer-post-quantum"]
 ring = ["rustls/ring", "tokio-rustls/ring"]
 tls12 = ["rustls/tls12", "tokio-rustls/tls12"]
@@ -23,7 +24,7 @@ webpki-roots = ["dep:webpki-roots"]
 
 [dependencies]
 rustls = { version = "0.23", default-features = false, features = ["std"] }
-rustls-native-certs = { version = "0.8", optional = true }
+rustls-platform-verifier = { version = "0.7", optional = true }
 sha2 = { version = "0.11", optional = true }
 tokio = { version = "1.47" }
 tokio-postgres = { version = "0.7" }

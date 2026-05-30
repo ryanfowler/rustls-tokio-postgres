@@ -6,24 +6,24 @@
 //! # Usage
 //!
 //! Prefer a verifying TLS configuration for normal application code. This crate
-//! provides helpers for the OS-native trust store and the Mozilla WebPKI trust
-//! store behind optional features.
+//! provides helpers for the platform verifier and the Mozilla WebPKI trust store
+//! behind optional features.
 //!
-//! ## Native roots
+//! ## Platform verifier
 //!
-//! Enable the `native-roots` feature to use the operating system's native
-//! certificate store.
+//! Enable the `platform-verifier` feature to use certificate verification
+//! provided by the current platform.
 //!
 //! ```rust,no_run
-//! # #[cfg(feature = "native-roots")]
+//! # #[cfg(feature = "platform-verifier")]
 //! # {
-//! use rustls_tokio_postgres::{config_native_roots, MakeRustlsConnect};
+//! use rustls_tokio_postgres::{config_platform_verifier, MakeRustlsConnect};
 //! use tokio_postgres::connect;
 //!
 //! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
 //! static CONFIG: &str = "host=localhost user=postgres";
 //!
-//! let tls = MakeRustlsConnect::new(config_native_roots()?);
+//! let tls = MakeRustlsConnect::new(config_platform_verifier()?);
 //!
 //! let (_client, _conn) = connect(CONFIG, tls).await?;
 //!
@@ -64,7 +64,7 @@
 //!
 //! Use this only for local development, tests, or tightly controlled
 //! environments where server identity is verified by another trusted mechanism.
-//! Prefer `config_native_roots()`, `config_webpki_roots()`, or a custom
+//! Prefer `config_platform_verifier()`, `config_webpki_roots()`, or a custom
 //! [`rustls::ClientConfig`] with an explicit root store for production systems.
 //!
 //! ```rust,no_run
@@ -89,7 +89,8 @@
 //! - **channel-binding**: enables TLS channel binding, if supported.
 //! - **fips**: enables rustls' AWS-LC-RS FIPS provider support.
 //! - **logging**: enables rustls logging. Enabled by default.
-//! - **native-roots**: enables a helper function for creating a [`rustls::ClientConfig`] using the native roots of your OS.
+//! - **native-roots**: deprecated alias for **platform-verifier**.
+//! - **platform-verifier**: enables a helper function for creating a [`rustls::ClientConfig`] using the platform certificate verifier.
 //! - **prefer-post-quantum**: enables rustls' post-quantum-preferred AWS-LC-RS key exchange ordering. Enabled by default.
 //! - **ring**: enables rustls' ring crypto provider. Use `default-features = false` if you want ring without AWS-LC-RS.
 //! - **tls12**: enables rustls TLS 1.2 support. Enabled by default.
@@ -108,9 +109,12 @@ mod config;
 mod connect;
 
 pub use config::config_no_verify;
+#[cfg(feature = "platform-verifier")]
+pub use config::config_platform_verifier;
 #[cfg(feature = "webpki-roots")]
 pub use config::config_webpki_roots;
 #[cfg(feature = "native-roots")]
+#[allow(deprecated)]
 pub use config::{NativeRootsError, config_native_roots};
 pub use rustls;
 pub use tokio_postgres;
