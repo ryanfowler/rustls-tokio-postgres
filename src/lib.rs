@@ -107,7 +107,7 @@
 //! # Features
 //!
 //! - **aws-lc-rs**: enables rustls' AWS-LC-RS crypto provider. Enabled by default.
-//! - **channel-binding**: enables TLS channel binding, if supported.
+//! - **channel-binding**: enables TLS channel binding, if supported. Enabled by default.
 //! - **fips**: enables rustls' AWS-LC-RS FIPS provider support.
 //! - **logging**: enables rustls logging. Enabled by default.
 //! - **native-roots**: deprecated alias for **platform-verifier**.
