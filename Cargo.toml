@@ -10,7 +10,13 @@ keywords = ["tokio-postgres", "rustls", "postgres", "sql"]
 categories = ["database"]
 
 [features]
-default = ["aws-lc-rs", "logging", "prefer-post-quantum", "tls12"]
+default = [
+    "aws-lc-rs",
+    "channel-binding",
+    "logging",
+    "prefer-post-quantum",
+    "tls12",
+]
 aws-lc-rs = ["rustls/aws-lc-rs", "tokio-rustls/aws-lc-rs"]
 channel-binding = ["dep:sha2", "dep:x509-parser"]
 fips = ["aws-lc-rs", "rustls/fips", "tokio-rustls/fips"]
