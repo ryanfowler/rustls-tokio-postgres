@@ -79,7 +79,11 @@ impl std::fmt::Display for NativeRootsError {
 }
 
 #[cfg(feature = "native-roots")]
-impl std::error::Error for NativeRootsError {}
+impl std::error::Error for NativeRootsError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
 
 /// Returns a rustls ClientConfig that uses certificate verification provided by
 /// the current platform.
@@ -264,5 +268,23 @@ impl ServerCertVerifier for NoopTlsVerifier {
             SignatureScheme::ED448,
         ];
         SCHEMES.to_vec()
+    }
+}
+
+#[cfg(all(test, feature = "native-roots"))]
+mod tests {
+    use std::error::Error as _;
+
+    use super::*;
+
+    #[test]
+    fn native_roots_error_exposes_source() {
+        let err = NativeRootsError(TlsError::General("root cause".into()));
+        let source = err.source().expect("source error");
+
+        assert!(matches!(
+            source.downcast_ref::<TlsError>(),
+            Some(TlsError::General(message)) if message == "root cause",
+        ));
     }
 }

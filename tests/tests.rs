@@ -3,25 +3,47 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rustls_tokio_postgres::MakeRustlsConnect;
-use rustls_tokio_postgres::rustls::ClientConfig;
+use rustls_tokio_postgres::rustls::{
+    ClientConfig,
+    pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject as _},
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_postgres::tls::{MakeTlsConnect, TlsConnect};
+
+const LOCALHOST_CERT_PEM: &str = "\
+-----BEGIN CERTIFICATE-----
+MIIBjzCCATWgAwIBAgIBATAKBggqhkjOPQQDAjAUMRIwEAYDVQQDDAlsb2NhbGhv
+c3QwIBcNMjAwMTAxMDAwMDAwWhgPMjA1MDAxMDEwMDAwMDBaMBQxEjAQBgNVBAMM
+CWxvY2FsaG9zdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABInhSYN5b4yOzkSX
+k2c7oftCxotGTC6d882nVyps5rP1fht9yqjgGQdUObjGoOFlPdn63qglEqekns1W
+Kj5uQ3SjdjB0MB0GA1UdDgQWBBTbFa3/qraJQQNOjJxSeLJdHDhABjAfBgNVHSME
+GDAWgBTbFa3/qraJQQNOjJxSeLJdHDhABjAUBgNVHREEDTALgglsb2NhbGhvc3Qw
+DAYDVR0TAQH/BAIwADAOBgNVHQ8BAf8EBAMCB4AwCgYIKoZIzj0EAwIDSAAwRQIh
+AP8bx2XukP276oeI/gZwOZjbygreJD3qx+JxUCNlCt4lAiBT1BDuUTppvX8jJN1k
+BuPltBArIwLSR4Ox7x8P0+rGWw==
+-----END CERTIFICATE-----
+";
+
+const LOCALHOST_KEY_PEM: &str = "\
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg1TpZB151cQcviPkh
+NQWeCFlZ9x54txK3Y4MeTgosojKhRANCAASJ4UmDeW+Mjs5El5NnO6H7QsaLRkwu
+nfPNp1cqbOaz9X4bfcqo4BkHVDm4xqDhZT3Z+t6oJRKnpJ7NVio+bkN0
+-----END PRIVATE KEY-----
+";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Generate a self-signed certificate for `localhost` and return
+/// Load a self-signed certificate for `localhost` and return
 /// (server_config, client_config).
 fn test_tls_configs() -> Option<(rustls::ServerConfig, ClientConfig)> {
     let provider = test_crypto_provider()?;
-    let key_pair = rcgen::KeyPair::generate().unwrap();
-    let cert_params = rcgen::CertificateParams::new(vec!["localhost".into()]).unwrap();
-    let cert = cert_params.self_signed(&key_pair).unwrap();
 
-    let cert_der = rustls::pki_types::CertificateDer::from(cert.der().to_vec());
-    let key_der = rustls::pki_types::PrivateKeyDer::try_from(key_pair.serialize_der()).unwrap();
+    let cert_der = CertificateDer::from_pem_slice(LOCALHOST_CERT_PEM.as_bytes()).unwrap();
+    let key_der = PrivateKeyDer::from_pem_slice(LOCALHOST_KEY_PEM.as_bytes()).unwrap();
 
     let server_config = rustls::ServerConfig::builder_with_provider(provider.clone())
         .with_safe_default_protocol_versions()
@@ -30,7 +52,7 @@ fn test_tls_configs() -> Option<(rustls::ServerConfig, ClientConfig)> {
         .with_single_cert(vec![cert_der.clone()], key_der)
         .unwrap();
 
-    let ca_cert_path = write_temp_ca_file(cert.pem());
+    let ca_cert_path = write_temp_ca_file(LOCALHOST_CERT_PEM);
     let client_config = rustls_tokio_postgres::config_from_ca_cert(&ca_cert_path).unwrap();
     std::fs::remove_file(ca_cert_path).unwrap();
 
@@ -232,10 +254,7 @@ fn config_from_ca_cert_selects_feature_provider() {
         return;
     }
 
-    let key_pair = rcgen::KeyPair::generate().unwrap();
-    let cert_params = rcgen::CertificateParams::new(vec!["localhost".into()]).unwrap();
-    let cert = cert_params.self_signed(&key_pair).unwrap();
-    let ca_cert_path = write_temp_ca_file(cert.pem());
+    let ca_cert_path = write_temp_ca_file(LOCALHOST_CERT_PEM);
 
     let config = rustls_tokio_postgres::config_from_ca_cert(&ca_cert_path).unwrap();
     let _ = MakeRustlsConnect::new(config);
