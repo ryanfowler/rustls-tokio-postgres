@@ -12,6 +12,16 @@ Prefer a verifying TLS configuration for normal application code. This crate
 provides helpers for explicit CA certificate files, the platform verifier, and
 the Mozilla WebPKI trust store behind optional features.
 
+### Crypto providers
+
+Config helpers use an already-installed rustls `CryptoProvider` when one
+exists. Otherwise they choose AWS-LC-RS when this crate's `aws-lc-rs` feature is
+enabled, or ring when only the `ring` feature is enabled. They do not install a
+process-global provider.
+
+In custom-provider or no-provider builds, install a provider before using these
+helpers.
+
 ### Platform verifier
 
 Enable the `platform-verifier` feature to use certificate verification provided
