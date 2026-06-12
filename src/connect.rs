@@ -197,7 +197,145 @@ fn tls_server_end_point_digest(cert_der: &[u8]) -> Option<Vec<u8>> {
 #[cfg(all(test, feature = "channel-binding"))]
 mod tests {
     use super::tls_server_end_point_digest;
-    use sha2::{Digest, Sha256, Sha384};
+    use sha2::{Digest, Sha256, Sha384, Sha512};
+
+    const OID_HASH_SHA1: &[u64] = &[1, 3, 14, 3, 2, 26];
+    const OID_NIST_HASH_SHA256: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 2, 1];
+    const OID_NIST_HASH_SHA384: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 2, 2];
+    const OID_NIST_HASH_SHA512: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 2, 3];
+    const OID_PKCS1_RSA_ENCRYPTION: &[u64] = &[1, 2, 840, 113549, 1, 1, 1];
+    const OID_PKCS1_SHA1_WITH_RSA: &[u64] = &[1, 2, 840, 113549, 1, 1, 5];
+    const OID_PKCS1_SHA256_WITH_RSA: &[u64] = &[1, 2, 840, 113549, 1, 1, 11];
+    const OID_PKCS1_SHA384_WITH_RSA: &[u64] = &[1, 2, 840, 113549, 1, 1, 12];
+    const OID_PKCS1_SHA512_WITH_RSA: &[u64] = &[1, 2, 840, 113549, 1, 1, 13];
+    const OID_PKCS1_RSASSA_PSS: &[u64] = &[1, 2, 840, 113549, 1, 1, 10];
+
+    fn assert_digest<D: Digest>(der: &[u8], expected_len: usize) {
+        let result = tls_server_end_point_digest(der).unwrap();
+        let expected = D::digest(der).to_vec();
+        assert_eq!(result, expected);
+        assert_eq!(result.len(), expected_len);
+    }
+
+    fn der(tag: u8, contents: &[u8]) -> Vec<u8> {
+        let mut out = vec![tag];
+        out.extend(der_len(contents.len()));
+        out.extend(contents);
+        out
+    }
+
+    fn der_len(len: usize) -> Vec<u8> {
+        if len < 128 {
+            return vec![len as u8];
+        }
+
+        let bytes = len.to_be_bytes();
+        let first_non_zero = bytes
+            .iter()
+            .position(|byte| *byte != 0)
+            .expect("non-zero long-form DER length");
+        let significant = &bytes[first_non_zero..];
+        let mut out = vec![0x80 | significant.len() as u8];
+        out.extend(significant);
+        out
+    }
+
+    fn der_sequence(contents: &[u8]) -> Vec<u8> {
+        der(0x30, contents)
+    }
+
+    fn der_null() -> Vec<u8> {
+        der(0x05, &[])
+    }
+
+    fn der_integer_u8(value: u8) -> Vec<u8> {
+        der(0x02, &[value])
+    }
+
+    fn der_utc_time(value: &[u8]) -> Vec<u8> {
+        der(0x17, value)
+    }
+
+    fn der_bit_string(value: &[u8]) -> Vec<u8> {
+        let mut contents = vec![0];
+        contents.extend(value);
+        der(0x03, &contents)
+    }
+
+    fn der_context_specific_constructed(tag: u8, contents: &[u8]) -> Vec<u8> {
+        der(0xa0 | tag, contents)
+    }
+
+    fn der_oid(arcs: &[u64]) -> Vec<u8> {
+        assert!(arcs.len() >= 2);
+        assert!(arcs[0] <= 2);
+        assert!(arcs[1] < 40 || arcs[0] == 2);
+
+        let mut contents = Vec::new();
+        encode_oid_arc(arcs[0] * 40 + arcs[1], &mut contents);
+        for arc in &arcs[2..] {
+            encode_oid_arc(*arc, &mut contents);
+        }
+        der(0x06, &contents)
+    }
+
+    fn encode_oid_arc(mut arc: u64, out: &mut Vec<u8>) {
+        let mut encoded = [0u8; 10];
+        let mut i = encoded.len();
+        i -= 1;
+        encoded[i] = (arc & 0x7f) as u8;
+        arc >>= 7;
+
+        while arc != 0 {
+            i -= 1;
+            encoded[i] = ((arc & 0x7f) as u8) | 0x80;
+            arc >>= 7;
+        }
+
+        out.extend(&encoded[i..]);
+    }
+
+    fn algorithm_identifier(oid: &[u64], parameters: Option<Vec<u8>>) -> Vec<u8> {
+        let mut contents = der_oid(oid);
+        if let Some(parameters) = parameters {
+            contents.extend(parameters);
+        }
+        der_sequence(&contents)
+    }
+
+    fn rsa_pkcs1_algorithm_identifier(oid: &[u64]) -> Vec<u8> {
+        algorithm_identifier(oid, Some(der_null()))
+    }
+
+    fn rsa_pss_algorithm_identifier(hash_oid: &[u64]) -> Vec<u8> {
+        let hash_algorithm = algorithm_identifier(hash_oid, None);
+        let params = der_sequence(&der_context_specific_constructed(0, &hash_algorithm));
+        algorithm_identifier(OID_PKCS1_RSASSA_PSS, Some(params))
+    }
+
+    fn cert_der_with_signature_algorithm(signature_algorithm: &[u8]) -> Vec<u8> {
+        let spki_algorithm = algorithm_identifier(OID_PKCS1_RSA_ENCRYPTION, Some(der_null()));
+        let mut spki_contents = spki_algorithm;
+        spki_contents.extend(der_bit_string(&[]));
+        let spki = der_sequence(&spki_contents);
+
+        let mut validity_contents = der_utc_time(b"700101000000Z");
+        validity_contents.extend(der_utc_time(b"700102000000Z"));
+        let validity = der_sequence(&validity_contents);
+
+        let mut tbs_contents = der_integer_u8(1);
+        tbs_contents.extend(signature_algorithm);
+        tbs_contents.extend(der_sequence(&[]));
+        tbs_contents.extend(validity);
+        tbs_contents.extend(der_sequence(&[]));
+        tbs_contents.extend(spki);
+        let tbs = der_sequence(&tbs_contents);
+
+        let mut cert_contents = tbs;
+        cert_contents.extend(signature_algorithm);
+        cert_contents.extend(der_bit_string(&[]));
+        der_sequence(&cert_contents)
+    }
 
     #[test]
     fn digest_invalid_der_is_unsupported() {
@@ -231,6 +369,70 @@ mod tests {
         let expected = Sha384::digest(der).to_vec();
         assert_eq!(result, expected);
         assert_eq!(result.len(), 48); // SHA-384 = 48 bytes
+    }
+
+    #[test]
+    fn digest_rsa_pkcs1_sha256_cert() {
+        let signature_algorithm = rsa_pkcs1_algorithm_identifier(OID_PKCS1_SHA256_WITH_RSA);
+        let der = cert_der_with_signature_algorithm(&signature_algorithm);
+
+        assert_digest::<Sha256>(&der, 32);
+    }
+
+    #[test]
+    fn digest_rsa_pkcs1_sha384_cert() {
+        let signature_algorithm = rsa_pkcs1_algorithm_identifier(OID_PKCS1_SHA384_WITH_RSA);
+        let der = cert_der_with_signature_algorithm(&signature_algorithm);
+
+        assert_digest::<Sha384>(&der, 48);
+    }
+
+    #[test]
+    fn digest_rsa_pkcs1_sha512_cert() {
+        let signature_algorithm = rsa_pkcs1_algorithm_identifier(OID_PKCS1_SHA512_WITH_RSA);
+        let der = cert_der_with_signature_algorithm(&signature_algorithm);
+
+        assert_digest::<Sha512>(&der, 64);
+    }
+
+    #[test]
+    fn digest_rsa_pss_sha256_cert() {
+        let signature_algorithm = rsa_pss_algorithm_identifier(OID_NIST_HASH_SHA256);
+        let der = cert_der_with_signature_algorithm(&signature_algorithm);
+
+        assert_digest::<Sha256>(&der, 32);
+    }
+
+    #[test]
+    fn digest_rsa_pss_sha384_cert() {
+        let signature_algorithm = rsa_pss_algorithm_identifier(OID_NIST_HASH_SHA384);
+        let der = cert_der_with_signature_algorithm(&signature_algorithm);
+
+        assert_digest::<Sha384>(&der, 48);
+    }
+
+    #[test]
+    fn digest_rsa_pss_sha512_cert() {
+        let signature_algorithm = rsa_pss_algorithm_identifier(OID_NIST_HASH_SHA512);
+        let der = cert_der_with_signature_algorithm(&signature_algorithm);
+
+        assert_digest::<Sha512>(&der, 64);
+    }
+
+    #[test]
+    fn digest_rsa_pss_sha1_cert_falls_back_to_sha256() {
+        let signature_algorithm = rsa_pss_algorithm_identifier(OID_HASH_SHA1);
+        let der = cert_der_with_signature_algorithm(&signature_algorithm);
+
+        assert_digest::<Sha256>(&der, 32);
+    }
+
+    #[test]
+    fn digest_sha1_cert_falls_back_to_sha256() {
+        let signature_algorithm = rsa_pkcs1_algorithm_identifier(OID_PKCS1_SHA1_WITH_RSA);
+        let der = cert_der_with_signature_algorithm(&signature_algorithm);
+
+        assert_digest::<Sha256>(&der, 32);
     }
 
     #[test]
