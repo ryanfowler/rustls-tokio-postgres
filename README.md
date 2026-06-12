@@ -33,11 +33,16 @@ use tokio_postgres::connect;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    static CONFIG: &str = "host=localhost user=postgres";
+    static CONFIG: &str = "host=localhost user=postgres sslmode=require";
 
     let tls = MakeRustlsConnect::new(config_platform_verifier()?);
 
-    let (_client, _conn) = connect(CONFIG, tls).await?;
+    let (client, connection) = connect(CONFIG, tls).await?;
+    tokio::spawn(async move {
+        if let Err(err) = connection.await {
+            eprintln!("postgres connection error: {err}");
+        }
+    });
 
     Ok(())
 }
@@ -54,11 +59,16 @@ use tokio_postgres::connect;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    static CONFIG: &str = "host=localhost user=postgres";
+    static CONFIG: &str = "host=localhost user=postgres sslmode=require";
 
     let tls = MakeRustlsConnect::new(config_webpki_roots());
 
-    let (_client, _conn) = connect(CONFIG, tls).await?;
+    let (client, connection) = connect(CONFIG, tls).await?;
+    tokio::spawn(async move {
+        if let Err(err) = connection.await {
+            eprintln!("postgres connection error: {err}");
+        }
+    });
 
     Ok(())
 }
@@ -75,11 +85,16 @@ use tokio_postgres::connect;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    static CONFIG: &str = "host=localhost user=postgres";
+    static CONFIG: &str = "host=localhost user=postgres sslmode=require";
 
     let tls = MakeRustlsConnect::new(config_from_ca_cert("ca.pem")?);
 
-    let (_client, _conn) = connect(CONFIG, tls).await?;
+    let (client, connection) = connect(CONFIG, tls).await?;
+    tokio::spawn(async move {
+        if let Err(err) = connection.await {
+            eprintln!("postgres connection error: {err}");
+        }
+    });
 
     Ok(())
 }
@@ -104,11 +119,16 @@ use tokio_postgres::connect;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    static CONFIG: &str = "host=localhost user=postgres";
+    static CONFIG: &str = "host=localhost user=postgres sslmode=require";
 
     let tls = MakeRustlsConnect::new(config_no_verify());
 
-    let (_client, _conn) = connect(CONFIG, tls).await?;
+    let (client, connection) = connect(CONFIG, tls).await?;
+    tokio::spawn(async move {
+        if let Err(err) = connection.await {
+            eprintln!("postgres connection error: {err}");
+        }
+    });
 
     Ok(())
 }
