@@ -1,4 +1,5 @@
 use std::{
+    future::Future,
     io,
     pin::Pin,
     sync::Arc,
@@ -8,7 +9,10 @@ use std::{
 use rustls::{ClientConfig, pki_types::ServerName};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_postgres::tls::{ChannelBinding, TlsConnect};
-use tokio_rustls::{TlsConnector, client::TlsStream as RustlsTlsStream};
+use tokio_rustls::{
+    TlsConnector,
+    client::{Connect as RustlsHandshake, TlsStream as RustlsTlsStream},
+};
 
 /// Performs the TLS handshake.
 pub struct RustlsConnect {
@@ -22,16 +26,34 @@ where
 {
     type Stream = TlsStream<S>;
     type Error = io::Error;
-    type Future =
-        Pin<Box<dyn std::future::Future<Output = Result<Self::Stream, Self::Error>> + Send>>;
+    type Future = RustlsConnectFuture<S>;
 
     fn connect(self, stream: S) -> Self::Future {
         let connector = TlsConnector::from(self.config);
         let server_name = self.server_name;
-        Box::pin(async move {
-            let inner = connector.connect(server_name, stream).await?;
-            Ok(TlsStream(inner))
-        })
+        RustlsConnectFuture {
+            inner: connector.connect(server_name, stream),
+        }
+    }
+}
+
+/// Future returned by [`RustlsConnect::connect`].
+pub struct RustlsConnectFuture<S> {
+    inner: RustlsHandshake<S>,
+}
+
+impl<S> Future for RustlsConnectFuture<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    type Output = io::Result<TlsStream<S>>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match Pin::new(&mut self.inner).poll(cx) {
+            Poll::Ready(Ok(stream)) => Poll::Ready(Ok(TlsStream(stream))),
+            Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
