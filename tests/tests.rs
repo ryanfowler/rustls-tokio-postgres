@@ -14,9 +14,8 @@ use tokio_postgres::tls::{MakeTlsConnect, TlsConnect};
 
 /// Generate a self-signed certificate for `localhost` and return
 /// (server_config, client_config).
-fn test_tls_configs() -> (rustls::ServerConfig, ClientConfig) {
-    install_test_crypto_provider();
-
+fn test_tls_configs() -> Option<(rustls::ServerConfig, ClientConfig)> {
+    let provider = test_crypto_provider()?;
     let key_pair = rcgen::KeyPair::generate().unwrap();
     let cert_params = rcgen::CertificateParams::new(vec!["localhost".into()]).unwrap();
     let cert = cert_params.self_signed(&key_pair).unwrap();
@@ -24,7 +23,9 @@ fn test_tls_configs() -> (rustls::ServerConfig, ClientConfig) {
     let cert_der = rustls::pki_types::CertificateDer::from(cert.der().to_vec());
     let key_der = rustls::pki_types::PrivateKeyDer::try_from(key_pair.serialize_der()).unwrap();
 
-    let server_config = rustls::ServerConfig::builder()
+    let server_config = rustls::ServerConfig::builder_with_provider(provider.clone())
+        .with_safe_default_protocol_versions()
+        .unwrap()
         .with_no_client_auth()
         .with_single_cert(vec![cert_der.clone()], key_der)
         .unwrap();
@@ -33,7 +34,7 @@ fn test_tls_configs() -> (rustls::ServerConfig, ClientConfig) {
     let client_config = rustls_tokio_postgres::config_from_ca_cert(&ca_cert_path).unwrap();
     std::fs::remove_file(ca_cert_path).unwrap();
 
-    (server_config, client_config)
+    Some((server_config, client_config))
 }
 
 fn write_temp_ca_file(contents: impl AsRef<[u8]>) -> std::path::PathBuf {
@@ -48,25 +49,47 @@ fn write_temp_ca_file(contents: impl AsRef<[u8]>) -> std::path::PathBuf {
     path
 }
 
-fn config_no_verify() -> ClientConfig {
-    install_test_crypto_provider();
-    rustls_tokio_postgres::config_no_verify()
+fn config_no_verify() -> Option<ClientConfig> {
+    test_crypto_provider()?;
+    Some(rustls_tokio_postgres::config_no_verify())
 }
 
-#[cfg(all(feature = "aws-lc-rs", feature = "ring"))]
-fn install_test_crypto_provider() {
-    use std::sync::Once;
-
-    static INSTALL_PROVIDER: Once = Once::new();
-    INSTALL_PROVIDER.call_once(|| {
-        rustls_tokio_postgres::rustls::crypto::aws_lc_rs::default_provider()
-            .install_default()
-            .expect("failed to install rustls crypto provider for tests");
-    });
+#[cfg(feature = "aws-lc-rs")]
+fn test_crypto_provider() -> Option<Arc<rustls::crypto::CryptoProvider>> {
+    Some(Arc::new(
+        rustls_tokio_postgres::rustls::crypto::aws_lc_rs::default_provider(),
+    ))
 }
 
-#[cfg(not(all(feature = "aws-lc-rs", feature = "ring")))]
-fn install_test_crypto_provider() {}
+#[cfg(all(not(feature = "aws-lc-rs"), feature = "ring"))]
+fn test_crypto_provider() -> Option<Arc<rustls::crypto::CryptoProvider>> {
+    Some(Arc::new(
+        rustls_tokio_postgres::rustls::crypto::ring::default_provider(),
+    ))
+}
+
+#[cfg(not(any(feature = "aws-lc-rs", feature = "ring")))]
+fn test_crypto_provider() -> Option<Arc<rustls::crypto::CryptoProvider>> {
+    None
+}
+
+macro_rules! require_config {
+    () => {
+        match config_no_verify() {
+            Some(config) => config,
+            None => return,
+        }
+    };
+}
+
+macro_rules! require_tls_configs {
+    () => {
+        match test_tls_configs() {
+            Some(configs) => configs,
+            None => return,
+        }
+    };
+}
 
 /// Spin up a TLS echo server on a random port. Returns the local address.
 async fn start_echo_server(server_config: rustls::ServerConfig) -> std::net::SocketAddr {
@@ -101,13 +124,13 @@ async fn start_echo_server(server_config: rustls::ServerConfig) -> std::net::Soc
 
 #[test]
 fn make_rustls_connect_new() {
-    let config = config_no_verify();
+    let config = require_config!();
     let _ = MakeRustlsConnect::new(config);
 }
 
 #[test]
 fn make_rustls_connect_is_clone() {
-    let config = config_no_verify();
+    let config = require_config!();
     let a = MakeRustlsConnect::new(config);
     let _b = a.clone();
 }
@@ -118,7 +141,7 @@ fn make_rustls_connect_is_clone() {
 
 #[test]
 fn make_tls_connect_valid_dns() {
-    let config = config_no_verify();
+    let config = require_config!();
     let mut make = MakeRustlsConnect::new(config);
     let result = MakeTlsConnect::<TcpStream>::make_tls_connect(&mut make, "localhost");
     assert!(result.is_ok());
@@ -126,7 +149,7 @@ fn make_tls_connect_valid_dns() {
 
 #[test]
 fn make_tls_connect_valid_domain() {
-    let config = config_no_verify();
+    let config = require_config!();
     let mut make = MakeRustlsConnect::new(config);
     let result = MakeTlsConnect::<TcpStream>::make_tls_connect(&mut make, "example.com");
     assert!(result.is_ok());
@@ -134,7 +157,7 @@ fn make_tls_connect_valid_domain() {
 
 #[test]
 fn make_tls_connect_valid_subdomain() {
-    let config = config_no_verify();
+    let config = require_config!();
     let mut make = MakeRustlsConnect::new(config);
     let result = MakeTlsConnect::<TcpStream>::make_tls_connect(&mut make, "db.example.com");
     assert!(result.is_ok());
@@ -142,7 +165,7 @@ fn make_tls_connect_valid_subdomain() {
 
 #[test]
 fn make_tls_connect_empty_hostname_fails() {
-    let config = config_no_verify();
+    let config = require_config!();
     let mut make = MakeRustlsConnect::new(config);
     match MakeTlsConnect::<TcpStream>::make_tls_connect(&mut make, "") {
         Ok(_) => panic!("empty hostname should fail"),
@@ -152,7 +175,7 @@ fn make_tls_connect_empty_hostname_fails() {
 
 #[test]
 fn make_tls_connect_ip_address_succeeds() {
-    let config = config_no_verify();
+    let config = require_config!();
     let mut make = MakeRustlsConnect::new(config);
     let result = MakeTlsConnect::<TcpStream>::make_tls_connect(&mut make, "192.168.1.1");
     assert!(result.is_ok());
@@ -160,7 +183,7 @@ fn make_tls_connect_ip_address_succeeds() {
 
 #[test]
 fn make_tls_connect_ipv6_succeeds() {
-    let config = config_no_verify();
+    let config = require_config!();
     let mut make = MakeRustlsConnect::new(config);
     let result = MakeTlsConnect::<TcpStream>::make_tls_connect(&mut make, "::1");
     assert!(result.is_ok());
@@ -172,7 +195,61 @@ fn make_tls_connect_ipv6_succeeds() {
 
 #[test]
 fn config_no_verify_returns_usable_config() {
-    let config = config_no_verify();
+    let config = require_config!();
+    let _ = MakeRustlsConnect::new(config);
+}
+
+#[test]
+fn config_no_verify_selects_feature_provider() {
+    if test_crypto_provider().is_none() {
+        return;
+    }
+
+    let config = rustls_tokio_postgres::config_no_verify();
+    let _ = MakeRustlsConnect::new(config);
+}
+
+#[test]
+fn config_no_verify_reports_missing_crypto_provider() {
+    if test_crypto_provider().is_some() {
+        return;
+    }
+
+    let panic = std::panic::catch_unwind(rustls_tokio_postgres::config_no_verify)
+        .expect_err("config unexpectedly succeeded without a crypto provider");
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .unwrap_or("");
+
+    assert!(message.contains("could not select a rustls CryptoProvider"));
+}
+
+#[test]
+fn config_from_ca_cert_selects_feature_provider() {
+    if test_crypto_provider().is_none() {
+        return;
+    }
+
+    let key_pair = rcgen::KeyPair::generate().unwrap();
+    let cert_params = rcgen::CertificateParams::new(vec!["localhost".into()]).unwrap();
+    let cert = cert_params.self_signed(&key_pair).unwrap();
+    let ca_cert_path = write_temp_ca_file(cert.pem());
+
+    let config = rustls_tokio_postgres::config_from_ca_cert(&ca_cert_path).unwrap();
+    let _ = MakeRustlsConnect::new(config);
+    std::fs::remove_file(ca_cert_path).unwrap();
+}
+
+#[cfg(feature = "webpki-roots")]
+#[test]
+fn config_webpki_roots_selects_feature_provider() {
+    if test_crypto_provider().is_none() {
+        return;
+    }
+
+    let config = rustls_tokio_postgres::config_webpki_roots();
     let _ = MakeRustlsConnect::new(config);
 }
 
@@ -190,7 +267,7 @@ fn config_from_ca_cert_rejects_invalid_cert_file() {
 
 #[tokio::test]
 async fn tls_handshake_and_echo() {
-    let (server_config, client_config) = test_tls_configs();
+    let (server_config, client_config) = require_tls_configs!();
     let addr = start_echo_server(server_config).await;
 
     let mut make = MakeRustlsConnect::new(client_config);
@@ -210,7 +287,7 @@ async fn tls_handshake_and_echo() {
 
 #[tokio::test]
 async fn tls_handshake_multiple_messages() {
-    let (server_config, client_config) = test_tls_configs();
+    let (server_config, client_config) = require_tls_configs!();
     let addr = start_echo_server(server_config).await;
 
     let mut make = MakeRustlsConnect::new(client_config);
@@ -232,7 +309,7 @@ async fn tls_handshake_multiple_messages() {
 
 #[tokio::test]
 async fn tls_stream_shutdown() {
-    let (server_config, client_config) = test_tls_configs();
+    let (server_config, client_config) = require_tls_configs!();
     let addr = start_echo_server(server_config).await;
 
     let mut make = MakeRustlsConnect::new(client_config);
@@ -252,10 +329,10 @@ async fn tls_stream_shutdown() {
 
 #[tokio::test]
 async fn tls_handshake_no_verify() {
-    let (server_config, _) = test_tls_configs();
+    let (server_config, _) = require_tls_configs!();
     let addr = start_echo_server(server_config).await;
 
-    let client_config = config_no_verify();
+    let client_config = require_config!();
     let mut make = MakeRustlsConnect::new(client_config);
     let connector = MakeTlsConnect::<TcpStream>::make_tls_connect(&mut make, "localhost").unwrap();
 
@@ -277,7 +354,7 @@ async fn tls_handshake_no_verify() {
 
 #[tokio::test]
 async fn tls_handshake_wrong_hostname_fails() {
-    let (server_config, client_config) = test_tls_configs();
+    let (server_config, client_config) = require_tls_configs!();
     let addr = start_echo_server(server_config).await;
 
     let mut make = MakeRustlsConnect::new(client_config);
@@ -297,7 +374,7 @@ async fn tls_handshake_wrong_hostname_fails() {
 async fn tls_stream_channel_binding() {
     use tokio_postgres::tls::TlsStream;
 
-    let (server_config, client_config) = test_tls_configs();
+    let (server_config, client_config) = require_tls_configs!();
     let addr = start_echo_server(server_config).await;
 
     let mut make = MakeRustlsConnect::new(client_config);
@@ -315,7 +392,7 @@ async fn tls_stream_channel_binding() {
 
 #[tokio::test]
 async fn multiple_connections_from_same_make() {
-    let (server_config, client_config) = test_tls_configs();
+    let (server_config, client_config) = require_tls_configs!();
     let addr = start_echo_server(server_config).await;
 
     let mut make = MakeRustlsConnect::new(client_config);
@@ -342,7 +419,7 @@ async fn multiple_connections_from_same_make() {
 
 #[tokio::test]
 async fn cloned_make_works() {
-    let (server_config, client_config) = test_tls_configs();
+    let (server_config, client_config) = require_tls_configs!();
     let addr = start_echo_server(server_config).await;
 
     let make = MakeRustlsConnect::new(client_config);

@@ -1,6 +1,6 @@
 #![cfg(feature = "channel-binding")]
 
-use std::env;
+use std::{env, sync::Arc};
 
 use rustls_tokio_postgres::MakeRustlsConnect;
 
@@ -10,7 +10,9 @@ async fn scram_plus_channel_binding_required() -> Result<(), Box<dyn std::error:
         return Ok(());
     };
 
-    install_test_crypto_provider();
+    if test_crypto_provider().is_none() {
+        return Ok(());
+    }
 
     let tls = MakeRustlsConnect::new(rustls_tokio_postgres::config_no_verify());
     let (client, connection) = tokio_postgres::connect(&config, tls).await?;
@@ -36,17 +38,21 @@ async fn scram_plus_channel_binding_required() -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
-#[cfg(all(feature = "aws-lc-rs", feature = "ring"))]
-fn install_test_crypto_provider() {
-    use std::sync::Once;
-
-    static INSTALL_PROVIDER: Once = Once::new();
-    INSTALL_PROVIDER.call_once(|| {
-        rustls_tokio_postgres::rustls::crypto::aws_lc_rs::default_provider()
-            .install_default()
-            .expect("failed to install rustls crypto provider for tests");
-    });
+#[cfg(feature = "aws-lc-rs")]
+fn test_crypto_provider() -> Option<Arc<rustls_tokio_postgres::rustls::crypto::CryptoProvider>> {
+    Some(Arc::new(
+        rustls_tokio_postgres::rustls::crypto::aws_lc_rs::default_provider(),
+    ))
 }
 
-#[cfg(not(all(feature = "aws-lc-rs", feature = "ring")))]
-fn install_test_crypto_provider() {}
+#[cfg(all(not(feature = "aws-lc-rs"), feature = "ring"))]
+fn test_crypto_provider() -> Option<Arc<rustls_tokio_postgres::rustls::crypto::CryptoProvider>> {
+    Some(Arc::new(
+        rustls_tokio_postgres::rustls::crypto::ring::default_provider(),
+    ))
+}
+
+#[cfg(not(any(feature = "aws-lc-rs", feature = "ring")))]
+fn test_crypto_provider() -> Option<Arc<rustls_tokio_postgres::rustls::crypto::CryptoProvider>> {
+    None
+}

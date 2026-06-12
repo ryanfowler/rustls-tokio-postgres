@@ -1,13 +1,19 @@
 use std::{path::Path, sync::Arc};
 
 use rustls::{
-    ClientConfig, Error as TlsError, SignatureScheme,
+    ClientConfig, ConfigBuilder, Error as TlsError, SignatureScheme, WantsVerifier,
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
+    crypto::CryptoProvider,
     pki_types::{
         CertificateDer,
         pem::{Error as PemError, PemObject},
     },
 };
+
+#[cfg(not(any(feature = "aws-lc-rs", feature = "ring")))]
+const NO_CRYPTO_PROVIDER_ERROR: &str = "rustls-tokio-postgres could not select a rustls \
+CryptoProvider; enable this crate's `aws-lc-rs` or `ring` feature, call \
+`rustls::crypto::CryptoProvider::install_default()` before using config helpers";
 
 /// An error returned when creating a [`ClientConfig`] from a CA certificate file.
 #[derive(Debug)]
@@ -17,7 +23,8 @@ pub enum CaCertError {
     Pem(PemError),
     /// The file did not contain any PEM certificates.
     NoCertificates,
-    /// A certificate could not be added to the root store.
+    /// A certificate could not be added to the root store, or the TLS config
+    /// could not be built.
     Tls(TlsError),
 }
 
@@ -88,7 +95,7 @@ impl std::error::Error for NativeRootsError {}
 pub fn config_platform_verifier() -> Result<ClientConfig, TlsError> {
     use rustls_platform_verifier::BuilderVerifierExt as _;
 
-    Ok(ClientConfig::builder()
+    Ok(client_config_builder()?
         .with_platform_verifier()?
         .with_no_client_auth())
 }
@@ -107,6 +114,8 @@ pub fn config_native_roots() -> Result<ClientConfig, NativeRootsError> {
 /// Returns a rustls ClientConfig that uses root certificates from the
 /// `webpki-roots` crate.
 ///
+/// Panics with a clear error if this crate cannot select a crypto provider.
+///
 /// Requires the `webpki-roots` feature to be enabled.
 #[cfg(feature = "webpki-roots")]
 #[cfg_attr(docsrs, doc(cfg(feature = "webpki-roots")))]
@@ -114,7 +123,8 @@ pub fn config_webpki_roots() -> ClientConfig {
     let mut root_store = rustls::RootCertStore::empty();
     root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 
-    ClientConfig::builder()
+    client_config_builder()
+        .expect("failed to configure rustls client protocol versions")
         .with_root_certificates(root_store)
         .with_no_client_auth()
 }
@@ -126,6 +136,14 @@ pub fn config_webpki_roots() -> ClientConfig {
 /// verification is still enabled; the certificates are used only as trust
 /// anchors.
 pub fn config_from_ca_cert(path: impl AsRef<Path>) -> Result<ClientConfig, CaCertError> {
+    let root_store = root_store_from_ca_cert(path)?;
+
+    Ok(client_config_builder()?
+        .with_root_certificates(root_store)
+        .with_no_client_auth())
+}
+
+fn root_store_from_ca_cert(path: impl AsRef<Path>) -> Result<rustls::RootCertStore, CaCertError> {
     let mut root_store = rustls::RootCertStore::empty();
     let mut count = 0;
 
@@ -138,12 +156,12 @@ pub fn config_from_ca_cert(path: impl AsRef<Path>) -> Result<ClientConfig, CaCer
         return Err(CaCertError::NoCertificates);
     }
 
-    Ok(ClientConfig::builder()
-        .with_root_certificates(root_store)
-        .with_no_client_auth())
+    Ok(root_store)
 }
 
 /// Returns a rustls ClientConfig that does not verify the server certificate.
+///
+/// Panics with a clear error if this crate cannot select a crypto provider.
 ///
 /// # Dangerous
 ///
@@ -158,10 +176,44 @@ pub fn config_from_ca_cert(path: impl AsRef<Path>) -> Result<ClientConfig, CaCer
 /// `config_webpki_roots`, or a custom [`ClientConfig`] with an explicit root
 /// store for production systems.
 pub fn config_no_verify() -> ClientConfig {
-    ClientConfig::builder()
+    client_config_builder()
+        .expect("failed to configure rustls client protocol versions")
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(NoopTlsVerifier {}))
         .with_no_client_auth()
+}
+
+fn client_config_builder() -> Result<ConfigBuilder<ClientConfig, WantsVerifier>, TlsError> {
+    client_config_builder_with_provider(default_crypto_provider())
+}
+
+fn client_config_builder_with_provider(
+    provider: Arc<CryptoProvider>,
+) -> Result<ConfigBuilder<ClientConfig, WantsVerifier>, TlsError> {
+    ClientConfig::builder_with_provider(provider).with_safe_default_protocol_versions()
+}
+
+fn default_crypto_provider() -> Arc<CryptoProvider> {
+    if let Some(provider) = CryptoProvider::get_default() {
+        return provider.clone();
+    }
+
+    feature_crypto_provider()
+}
+
+#[cfg(feature = "aws-lc-rs")]
+fn feature_crypto_provider() -> Arc<CryptoProvider> {
+    Arc::new(rustls::crypto::aws_lc_rs::default_provider())
+}
+
+#[cfg(all(not(feature = "aws-lc-rs"), feature = "ring"))]
+fn feature_crypto_provider() -> Arc<CryptoProvider> {
+    Arc::new(rustls::crypto::ring::default_provider())
+}
+
+#[cfg(not(any(feature = "aws-lc-rs", feature = "ring")))]
+fn feature_crypto_provider() -> Arc<CryptoProvider> {
+    panic!("{NO_CRYPTO_PROVIDER_ERROR}")
 }
 
 #[derive(Debug)]
