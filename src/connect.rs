@@ -203,6 +203,9 @@ mod tests {
     const OID_NIST_HASH_SHA256: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 2, 1];
     const OID_NIST_HASH_SHA384: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 2, 2];
     const OID_NIST_HASH_SHA512: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 2, 3];
+    const OID_SIG_ECDSA_WITH_SHA256: &[u64] = &[1, 2, 840, 10045, 4, 3, 2];
+    const OID_SIG_ECDSA_WITH_SHA384: &[u64] = &[1, 2, 840, 10045, 4, 3, 3];
+    const OID_SIG_ED25519: &[u64] = &[1, 3, 101, 112];
     const OID_PKCS1_RSA_ENCRYPTION: &[u64] = &[1, 2, 840, 113549, 1, 1, 1];
     const OID_PKCS1_SHA1_WITH_RSA: &[u64] = &[1, 2, 840, 113549, 1, 1, 5];
     const OID_PKCS1_SHA256_WITH_RSA: &[u64] = &[1, 2, 840, 113549, 1, 1, 11];
@@ -346,29 +349,18 @@ mod tests {
 
     #[test]
     fn digest_ecdsa_sha256_cert() {
-        // Generate an ECDSA P-256 cert (signs with ecdsa-with-SHA256).
-        let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).unwrap();
-        let params = rcgen::CertificateParams::new(vec!["test.local".into()]).unwrap();
-        let cert = params.self_signed(&key_pair).unwrap();
-        let der = cert.der().as_ref();
+        let signature_algorithm = algorithm_identifier(OID_SIG_ECDSA_WITH_SHA256, None);
+        let der = cert_der_with_signature_algorithm(&signature_algorithm);
 
-        let result = tls_server_end_point_digest(der).unwrap();
-        let expected = Sha256::digest(der).to_vec();
-        assert_eq!(result, expected);
-        assert_eq!(result.len(), 32); // SHA-256 = 32 bytes
+        assert_digest::<Sha256>(&der, 32);
     }
 
     #[test]
     fn digest_ecdsa_sha384_cert() {
-        let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P384_SHA384).unwrap();
-        let params = rcgen::CertificateParams::new(vec!["test.local".into()]).unwrap();
-        let cert = params.self_signed(&key_pair).unwrap();
-        let der = cert.der().as_ref();
+        let signature_algorithm = algorithm_identifier(OID_SIG_ECDSA_WITH_SHA384, None);
+        let der = cert_der_with_signature_algorithm(&signature_algorithm);
 
-        let result = tls_server_end_point_digest(der).unwrap();
-        let expected = Sha384::digest(der).to_vec();
-        assert_eq!(result, expected);
-        assert_eq!(result.len(), 48); // SHA-384 = 48 bytes
+        assert_digest::<Sha384>(&der, 48);
     }
 
     #[test]
@@ -437,24 +429,20 @@ mod tests {
 
     #[test]
     fn digest_ed25519_cert_is_unsupported() {
-        let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ED25519).unwrap();
-        let params = rcgen::CertificateParams::new(vec!["test.local".into()]).unwrap();
-        let cert = params.self_signed(&key_pair).unwrap();
-        let der = cert.der().as_ref();
+        let signature_algorithm = algorithm_identifier(OID_SIG_ED25519, None);
+        let der = cert_der_with_signature_algorithm(&signature_algorithm);
 
-        let result = tls_server_end_point_digest(der);
+        let result = tls_server_end_point_digest(&der);
         assert_eq!(result, None);
     }
 
     #[test]
     fn digest_is_deterministic() {
-        let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).unwrap();
-        let params = rcgen::CertificateParams::new(vec!["test.local".into()]).unwrap();
-        let cert = params.self_signed(&key_pair).unwrap();
-        let der = cert.der().as_ref();
+        let signature_algorithm = algorithm_identifier(OID_SIG_ECDSA_WITH_SHA256, None);
+        let der = cert_der_with_signature_algorithm(&signature_algorithm);
 
-        let a = tls_server_end_point_digest(der);
-        let b = tls_server_end_point_digest(der);
+        let a = tls_server_end_point_digest(&der);
+        let b = tls_server_end_point_digest(&der);
         assert_eq!(a, b);
     }
 }
