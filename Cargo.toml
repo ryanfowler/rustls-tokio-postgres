@@ -8,6 +8,7 @@ repository = "https://github.com/ryanfowler/rustls-tokio-postgres"
 license = "Apache-2.0"
 keywords = ["tokio-postgres", "rustls", "postgres", "sql"]
 categories = ["database"]
+exclude = [".github", "Cargo.lock"]
 
 [features]
 default = [
