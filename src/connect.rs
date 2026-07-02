@@ -187,6 +187,9 @@ fn tls_server_end_point_digest(cert_der: &[u8]) -> Option<Vec<u8>> {
         return Some(Sha512::digest(cert_der).to_vec());
     }
 
+    // Ed25519/Ed448 certificate signatures do not identify a separate hash
+    // algorithm for the RFC 5929 tls-server-end-point rule, so we do not
+    // advertise channel binding for those certificates.
     None
 }
 
