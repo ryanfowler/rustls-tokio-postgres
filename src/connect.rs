@@ -49,11 +49,7 @@ where
     type Output = io::Result<TlsStream<S>>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match Pin::new(&mut self.inner).poll(cx) {
-            Poll::Ready(Ok(stream)) => Poll::Ready(Ok(TlsStream(stream))),
-            Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
-            Poll::Pending => Poll::Pending,
-        }
+        Pin::new(&mut self.inner).poll(cx).map(|r| r.map(TlsStream))
     }
 }
 
