@@ -254,6 +254,10 @@ impl ServerCertVerifier for NoopTlsVerifier {
     }
 
     fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        // rustls requires this method to return an owned Vec, so each call has
+        // to allocate. The EdDSA entries are TLS signature schemes accepted by
+        // this no-op verifier; they are unrelated to tls-server-end-point
+        // channel-binding digest support.
         static SCHEMES: &[SignatureScheme] = &[
             SignatureScheme::ECDSA_NISTP256_SHA256,
             SignatureScheme::ECDSA_NISTP384_SHA384,
