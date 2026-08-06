@@ -1,9 +1,11 @@
 use std::{path::Path, sync::Arc};
 
 use rustls::{
-    ClientConfig, ConfigBuilder, Error as TlsError, SignatureScheme, WantsVerifier,
+    ClientConfig, ConfigBuilder, Error as TlsError, WantsVerifier,
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
-    crypto::CryptoProvider,
+    crypto::{
+        CryptoProvider, WebPkiSupportedAlgorithms, verify_tls12_signature, verify_tls13_signature,
+    },
     pki_types::{
         CertificateDer,
         pem::{Error as PemError, PemObject},
@@ -180,10 +182,15 @@ fn root_store_from_ca_cert(path: impl AsRef<Path>) -> Result<rustls::RootCertSto
 /// `config_webpki_roots`, or a custom [`ClientConfig`] with an explicit root
 /// store for production systems.
 pub fn config_no_verify() -> ClientConfig {
-    client_config_builder()
+    let provider = default_crypto_provider();
+    let signature_verification_algorithms = provider.signature_verification_algorithms;
+
+    client_config_builder_with_provider(provider)
         .expect("failed to configure rustls client protocol versions")
         .dangerous()
-        .with_custom_certificate_verifier(Arc::new(NoopTlsVerifier {}))
+        .with_custom_certificate_verifier(Arc::new(NoopTlsVerifier {
+            signature_verification_algorithms,
+        }))
         .with_no_client_auth()
 }
 
@@ -221,7 +228,9 @@ fn feature_crypto_provider() -> Arc<CryptoProvider> {
 }
 
 #[derive(Debug)]
-struct NoopTlsVerifier;
+struct NoopTlsVerifier {
+    signature_verification_algorithms: WebPkiSupportedAlgorithms,
+}
 
 impl ServerCertVerifier for NoopTlsVerifier {
     fn verify_server_cert(
@@ -237,41 +246,24 @@ impl ServerCertVerifier for NoopTlsVerifier {
 
     fn verify_tls12_signature(
         &self,
-        _message: &[u8],
-        _cert: &rustls::pki_types::CertificateDer<'_>,
-        _dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, TlsError> {
-        Ok(HandshakeSignatureValid::assertion())
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        verify_tls12_signature(message, cert, dss, &self.signature_verification_algorithms)
     }
 
     fn verify_tls13_signature(
         &self,
-        _message: &[u8],
-        _cert: &rustls::pki_types::CertificateDer<'_>,
-        _dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, TlsError> {
-        Ok(HandshakeSignatureValid::assertion())
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        verify_tls13_signature(message, cert, dss, &self.signature_verification_algorithms)
     }
 
     fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        // rustls requires this method to return an owned Vec, so each call has
-        // to allocate. The EdDSA entries are TLS signature schemes accepted by
-        // this no-op verifier; they are unrelated to tls-server-end-point
-        // channel-binding digest support.
-        static SCHEMES: &[SignatureScheme] = &[
-            SignatureScheme::ECDSA_NISTP256_SHA256,
-            SignatureScheme::ECDSA_NISTP384_SHA384,
-            SignatureScheme::ECDSA_NISTP521_SHA512,
-            SignatureScheme::ED25519,
-            SignatureScheme::RSA_PSS_SHA256,
-            SignatureScheme::RSA_PSS_SHA384,
-            SignatureScheme::RSA_PSS_SHA512,
-            SignatureScheme::RSA_PKCS1_SHA256,
-            SignatureScheme::RSA_PKCS1_SHA384,
-            SignatureScheme::RSA_PKCS1_SHA512,
-            SignatureScheme::ED448,
-        ];
-        SCHEMES.to_vec()
+        self.signature_verification_algorithms.supported_schemes()
     }
 }
 
