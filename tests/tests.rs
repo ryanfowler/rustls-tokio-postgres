@@ -6,6 +6,8 @@ use rustls_tokio_postgres::MakeRustlsConnect;
 use rustls_tokio_postgres::rustls::{
     ClientConfig,
     pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject as _},
+    server::{ClientHello, ResolvesServerCert},
+    sign::CertifiedKey,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -33,9 +35,27 @@ nfPNp1cqbOaz9X4bfcqo4BkHVDm4xqDhZT3Z+t6oJRKnpJ7NVio+bkN0
 -----END PRIVATE KEY-----
 ";
 
+// A valid P-256 key that does not match LOCALHOST_CERT_PEM.
+const MISMATCHED_KEY_PEM: &str = "\
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgb6WLaEbkTXwSu/NM
+7vT6uDLTNPDVz1Fw2Ac9TG1WPI6hRANCAAQ1+8dwaPpgQWCeu7DB/M2Qx6LvEn1o
+BAhZtGN4+1hRH+S7XkOmDg1tNI5qN9OW7vXAkilaL3ev3DDImU5NZKiL
+-----END PRIVATE KEY-----
+";
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+#[derive(Debug)]
+struct MismatchedCertResolver(Arc<CertifiedKey>);
+
+impl ResolvesServerCert for MismatchedCertResolver {
+    fn resolve(&self, _client_hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
+        Some(self.0.clone())
+    }
+}
 
 /// Load a self-signed certificate for `localhost` and return
 /// (server_config, client_config).
@@ -365,6 +385,38 @@ async fn tls_handshake_no_verify() {
     let mut buf = vec![0u8; payload.len()];
     tls_stream.read_exact(&mut buf).await.unwrap();
     assert_eq!(&buf, payload);
+}
+
+#[tokio::test]
+async fn tls_handshake_no_verify_rejects_mismatched_private_key() {
+    let Some(provider) = test_crypto_provider() else {
+        return;
+    };
+
+    let cert_der = CertificateDer::from_pem_slice(LOCALHOST_CERT_PEM.as_bytes()).unwrap();
+    let key_der = PrivateKeyDer::from_pem_slice(MISMATCHED_KEY_PEM.as_bytes()).unwrap();
+    let signing_key = provider.key_provider.load_private_key(key_der).unwrap();
+    let certified_key = CertifiedKey::new(vec![cert_der], signing_key);
+    let server_config = rustls::ServerConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_no_client_auth()
+        .with_cert_resolver(Arc::new(MismatchedCertResolver(Arc::new(certified_key))));
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(server_config));
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        assert!(acceptor.accept(stream).await.is_err());
+    });
+
+    let mut make = MakeRustlsConnect::new(rustls_tokio_postgres::config_no_verify());
+    let connector = MakeTlsConnect::<TcpStream>::make_tls_connect(&mut make, "localhost").unwrap();
+    let tcp = TcpStream::connect(addr).await.unwrap();
+
+    assert!(connector.connect(tcp).await.is_err());
+    server.await.unwrap();
 }
 
 // ---------------------------------------------------------------------------
