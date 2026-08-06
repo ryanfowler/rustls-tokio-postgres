@@ -133,7 +133,9 @@ where
 #[cfg(feature = "channel-binding")]
 fn tls_server_end_point_digest(cert_der: &[u8]) -> Option<Vec<u8>> {
     use sha2::{Digest, Sha256, Sha384, Sha512};
-    use x509_parser::{oid_registry::*, prelude::*, signature_algorithm::RsaSsaPssParams};
+    use x509_parser::{
+        asn1_rs::oid, oid_registry::*, prelude::*, signature_algorithm::RsaSsaPssParams,
+    };
 
     // Parse the certificate so we can inspect the signature algorithm OID.
     let Ok((_, x509)) = X509Certificate::from_der(cert_der) else {
@@ -147,6 +149,10 @@ fn tls_server_end_point_digest(cert_der: &[u8]) -> Option<Vec<u8>> {
         let params_any = x509.signature_algorithm.parameters()?;
         let pss = RsaSsaPssParams::try_from(params_any).ok()?;
         let alg = pss.hash_algorithm_oid();
+        let mask = pss.mask_gen_algorithm().ok()?;
+        if mask.mgf != oid!(1.2.840.113549.1.1.8) || &mask.hash != alg {
+            return None;
+        }
         if alg == &OID_NIST_HASH_SHA512 {
             return Some(Sha512::digest(cert_der).to_vec());
         }
@@ -206,6 +212,7 @@ mod tests {
     const OID_SIG_ECDSA_WITH_SHA384: &[u64] = &[1, 2, 840, 10045, 4, 3, 3];
     const OID_SIG_ED25519: &[u64] = &[1, 3, 101, 112];
     const OID_PKCS1_RSA_ENCRYPTION: &[u64] = &[1, 2, 840, 113549, 1, 1, 1];
+    const OID_PKCS1_MGF1: &[u64] = &[1, 2, 840, 113549, 1, 1, 8];
     const OID_PKCS1_SHA1_WITH_RSA: &[u64] = &[1, 2, 840, 113549, 1, 1, 5];
     const OID_PKCS1_SHA256_WITH_RSA: &[u64] = &[1, 2, 840, 113549, 1, 1, 11];
     const OID_PKCS1_SHA384_WITH_RSA: &[u64] = &[1, 2, 840, 113549, 1, 1, 12];
@@ -310,9 +317,30 @@ mod tests {
     }
 
     fn rsa_pss_algorithm_identifier(hash_oid: &[u64]) -> Vec<u8> {
+        rsa_pss_algorithm_identifier_with_mask(hash_oid, OID_PKCS1_MGF1, hash_oid)
+    }
+
+    fn rsa_pss_algorithm_identifier_with_mask(
+        hash_oid: &[u64],
+        mask_oid: &[u64],
+        mask_hash_oid: &[u64],
+    ) -> Vec<u8> {
+        let hash_algorithm = algorithm_identifier(hash_oid, None);
+        let mask_hash_algorithm = algorithm_identifier(mask_hash_oid, None);
+        let mask_algorithm = algorithm_identifier(mask_oid, Some(mask_hash_algorithm));
+        let mut params = der_context_specific_constructed(0, &hash_algorithm);
+        params.extend(der_context_specific_constructed(1, &mask_algorithm));
+        algorithm_identifier(OID_PKCS1_RSASSA_PSS, Some(der_sequence(&params)))
+    }
+
+    fn rsa_pss_algorithm_identifier_without_mask(hash_oid: &[u64]) -> Vec<u8> {
         let hash_algorithm = algorithm_identifier(hash_oid, None);
         let params = der_sequence(&der_context_specific_constructed(0, &hash_algorithm));
         algorithm_identifier(OID_PKCS1_RSASSA_PSS, Some(params))
+    }
+
+    fn rsa_pss_algorithm_identifier_with_defaults() -> Vec<u8> {
+        algorithm_identifier(OID_PKCS1_RSASSA_PSS, Some(der_sequence(&[])))
     }
 
     fn cert_der_with_signature_algorithm(signature_algorithm: &[u8]) -> Vec<u8> {
@@ -416,6 +444,34 @@ mod tests {
         let der = cert_der_with_signature_algorithm(&signature_algorithm);
 
         assert_digest::<Sha256>(&der, 32);
+    }
+
+    #[test]
+    fn digest_rsa_pss_default_sha1_algorithms_fall_back_to_sha256() {
+        let signature_algorithm = rsa_pss_algorithm_identifier_with_defaults();
+        let der = cert_der_with_signature_algorithm(&signature_algorithm);
+
+        assert_digest::<Sha256>(&der, 32);
+    }
+
+    #[test]
+    fn digest_rsa_pss_mixed_hashes_is_unsupported() {
+        let signature_algorithm = rsa_pss_algorithm_identifier_without_mask(OID_NIST_HASH_SHA256);
+        let der = cert_der_with_signature_algorithm(&signature_algorithm);
+
+        assert_eq!(tls_server_end_point_digest(&der), None);
+    }
+
+    #[test]
+    fn digest_rsa_pss_non_mgf1_mask_is_unsupported() {
+        let signature_algorithm = rsa_pss_algorithm_identifier_with_mask(
+            OID_NIST_HASH_SHA256,
+            OID_PKCS1_RSA_ENCRYPTION,
+            OID_NIST_HASH_SHA256,
+        );
+        let der = cert_der_with_signature_algorithm(&signature_algorithm);
+
+        assert_eq!(tls_server_end_point_digest(&der), None);
     }
 
     #[test]
