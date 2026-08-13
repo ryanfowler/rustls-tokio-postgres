@@ -136,9 +136,10 @@ fn tls_server_end_point_digest(cert_der: &[u8]) -> Option<Vec<u8>> {
     use md4::Md4;
     use sha2::{Digest, Sha224, Sha256, Sha384, Sha512, Sha512_224, Sha512_256};
     use sha3::{
-        Sha3_224, Sha3_256, Sha3_384, Sha3_512, Shake128, Shake256,
+        Sha3_224, Sha3_256, Sha3_384, Sha3_512,
         digest::{ExtendableOutput, Update, XofReader},
     };
+    use shake::{Shake128, Shake256};
     use x509_parser::{
         asn1_rs::{Oid, oid},
         oid_registry::OID_PKCS1_RSASSAPSS,
@@ -295,9 +296,10 @@ mod tests {
     use md4::Md4;
     use sha2::{Digest, Sha224, Sha256, Sha384, Sha512, Sha512_224, Sha512_256};
     use sha3::{
-        Sha3_224, Sha3_256, Sha3_384, Sha3_512, Shake128, Shake256,
+        Sha3_224, Sha3_256, Sha3_384, Sha3_512,
         digest::{ExtendableOutput, Update, XofReader},
     };
+    use shake::{Shake128, Shake256};
 
     const OID_HASH_SHA1: &[u64] = &[1, 3, 14, 3, 2, 26];
     const OID_NIST_HASH_SHA224: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 2, 4];
