@@ -24,6 +24,7 @@ channel-binding = [
     "dep:md4",
     "dep:sha2",
     "dep:sha3",
+    "dep:shake",
     "dep:x509-parser",
 ]
 fips = ["aws-lc-rs", "rustls/fips", "tokio-rustls/fips"]
@@ -41,7 +42,8 @@ rustls-platform-verifier = { version = "0.7", optional = true }
 md2 = { version = "0.11", optional = true }
 md4 = { version = "0.11", optional = true }
 sha2 = { version = "0.11", optional = true }
-sha3 = { version = "0.11", optional = true }
+sha3 = { version = "0.12", optional = true }
+shake = { version = "0.1", optional = true }
 tokio = { version = "1.47" }
 tokio-postgres = { version = "0.7" }
 tokio-rustls = { version = "0.26", default-features = false }
