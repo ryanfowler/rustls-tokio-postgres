@@ -170,6 +170,29 @@ fn make_rustls_connect_new() {
     let _ = MakeRustlsConnect::new(config);
 }
 
+#[tokio::test]
+async fn make_rustls_connect_from_arc_shares_config() {
+    let (server_config, client_config) = require_tls_configs!();
+    let addr = start_echo_server(server_config).await;
+
+    let config = Arc::new(client_config);
+    let mut make = MakeRustlsConnect::from(Arc::clone(&config));
+    assert_eq!(
+        Arc::strong_count(&config),
+        2,
+        "the Arc is shared, not cloned"
+    );
+
+    let connector = MakeTlsConnect::<TcpStream>::make_tls_connect(&mut make, "localhost").unwrap();
+    let tcp = TcpStream::connect(addr).await.unwrap();
+    let mut tls_stream = connector.connect(tcp).await.unwrap();
+
+    tls_stream.write_all(b"arc").await.unwrap();
+    let mut buf = [0u8; 3];
+    tls_stream.read_exact(&mut buf).await.unwrap();
+    assert_eq!(&buf, b"arc");
+}
+
 #[test]
 fn make_rustls_connect_is_clone() {
     let config = require_config!();

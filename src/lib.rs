@@ -302,11 +302,20 @@ pub struct MakeRustlsConnect {
 }
 
 impl MakeRustlsConnect {
-    /// Construct a new `MakeRustlsConnect` instance with the provided [`ClientConfig`].
+    /// Creates a `MakeRustlsConnect` that uses `config` for every connection.
+    ///
+    /// To use a config that is already in an [`Arc`], use
+    /// [`MakeRustlsConnect::from`]. This avoids a clone of the config.
     pub fn new(config: ClientConfig) -> Self {
-        Self {
-            config: Arc::new(config),
-        }
+        Self::from(Arc::new(config))
+    }
+}
+
+impl From<Arc<ClientConfig>> for MakeRustlsConnect {
+    /// Creates a `MakeRustlsConnect` that shares `config` and does not clone
+    /// it.
+    fn from(config: Arc<ClientConfig>) -> Self {
+        Self { config }
     }
 }
 
