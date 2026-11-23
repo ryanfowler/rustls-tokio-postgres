@@ -9,9 +9,10 @@ use std::{
 use rustls::{ClientConfig, pki_types::ServerName};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_postgres::tls::{ChannelBinding, TlsConnect};
+// `Connect` is at the crate root in every tokio-rustls 0.26.x release.
+// `tokio_rustls::client::Connect` is not in 0.26.0 to 0.26.2.
 use tokio_rustls::{
-    TlsConnector,
-    client::{Connect as RustlsHandshake, TlsStream as RustlsTlsStream},
+    Connect as RustlsHandshake, TlsConnector, client::TlsStream as RustlsTlsStream,
 };
 
 /// Performs the TLS handshake.
