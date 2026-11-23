@@ -356,6 +356,11 @@ fn assert_postgres_alpn(config: &ClientConfig) {
 
 #[test]
 fn config_from_ca_cert_rejects_invalid_cert_file() {
+    // Without a crypto provider, the function panics before it reads the file.
+    if test_crypto_provider().is_none() {
+        return;
+    }
+
     let ca_cert_path = write_temp_ca_file("not a certificate");
 
     assert!(rustls_tokio_postgres::config_from_ca_cert(&ca_cert_path).is_err());

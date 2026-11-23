@@ -97,6 +97,19 @@ impl std::error::Error for NativeRootsError {
 /// verifier for that target.
 ///
 /// Requires the `platform-verifier` feature to be enabled.
+///
+/// # Errors
+///
+/// This function returns an error in these cases:
+///
+/// - The crypto provider is not compatible. See [Crypto providers](crate#crypto-providers).
+/// - The platform verifier cannot start. For example, on Linux, the system has
+///   no CA certificates.
+///
+/// # Panics
+///
+/// This function panics if no crypto provider is available. See
+/// [Crypto providers](crate#crypto-providers).
 #[cfg(feature = "platform-verifier")]
 #[cfg_attr(docsrs, doc(cfg(feature = "platform-verifier")))]
 pub fn config_platform_verifier() -> Result<ClientConfig, TlsError> {
@@ -113,6 +126,14 @@ pub fn config_platform_verifier() -> Result<ClientConfig, TlsError> {
 /// the current platform.
 ///
 /// Requires the `native-roots` feature to be enabled.
+///
+/// # Errors
+///
+/// This function has the same errors as [`config_platform_verifier()`].
+///
+/// # Panics
+///
+/// This function has the same panics as [`config_platform_verifier()`].
 #[deprecated(note = "use config_platform_verifier() with the platform-verifier feature instead")]
 #[cfg(feature = "native-roots")]
 #[cfg_attr(docsrs, doc(cfg(feature = "native-roots")))]
@@ -123,9 +144,14 @@ pub fn config_native_roots() -> Result<ClientConfig, NativeRootsError> {
 /// Returns a rustls ClientConfig that uses root certificates from the
 /// `webpki-roots` crate.
 ///
-/// Panics with a clear error if this crate cannot select a crypto provider.
-///
 /// Requires the `webpki-roots` feature to be enabled.
+///
+/// # Panics
+///
+/// This function panics in these cases. See [Crypto providers](crate#crypto-providers).
+///
+/// - No crypto provider is available.
+/// - The crypto provider is not compatible.
 #[cfg(feature = "webpki-roots")]
 #[cfg_attr(docsrs, doc(cfg(feature = "webpki-roots")))]
 pub fn config_webpki_roots() -> ClientConfig {
@@ -146,11 +172,29 @@ pub fn config_webpki_roots() -> ClientConfig {
 /// CA certificate or bundle for verifying their database servers. Hostname
 /// verification is still enabled; the certificates are used only as trust
 /// anchors.
+///
+/// # Errors
+///
+/// This function returns an error in these cases:
+///
+/// - The file cannot be read ([`CaCertError::Pem`]).
+/// - A PEM section in the file is malformed ([`CaCertError::Pem`]).
+/// - The file contains no PEM certificates ([`CaCertError::NoCertificates`]).
+///   The function ignores other PEM sections, such as private keys.
+/// - A certificate is not a valid trust anchor ([`CaCertError::Tls`]).
+/// - The crypto provider is not compatible ([`CaCertError::Tls`]). See
+///   [Crypto providers](crate#crypto-providers).
+///
+/// # Panics
+///
+/// This function panics if no crypto provider is available. See
+/// [Crypto providers](crate#crypto-providers). The function does this check before it reads the file.
 pub fn config_from_ca_cert(path: impl AsRef<Path>) -> Result<ClientConfig, CaCertError> {
+    let builder = client_config_builder()?;
     let root_store = root_store_from_ca_cert(path)?;
 
     Ok(with_postgres_alpn(
-        client_config_builder()?
+        builder
             .with_root_certificates(root_store)
             .with_no_client_auth(),
     ))
@@ -174,7 +218,12 @@ fn root_store_from_ca_cert(path: impl AsRef<Path>) -> Result<rustls::RootCertSto
 
 /// Returns a rustls ClientConfig that does not verify the server certificate.
 ///
-/// Panics with a clear error if this crate cannot select a crypto provider.
+/// # Panics
+///
+/// This function panics in these cases. See [Crypto providers](crate#crypto-providers).
+///
+/// - No crypto provider is available.
+/// - The crypto provider is not compatible.
 ///
 /// # Dangerous
 ///
