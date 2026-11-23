@@ -68,9 +68,11 @@
 //! own [`rustls::ClientConfig`], set it yourself:
 //!
 //! ```rust
-//! # fn set_alpn(mut config: rustls_tokio_postgres::rustls::ClientConfig) {
-//! config.alpn_protocols = vec![rustls_tokio_postgres::POSTGRES_ALPN.to_vec()];
-//! # }
+//! use rustls_tokio_postgres::{POSTGRES_ALPN, rustls::ClientConfig};
+//!
+//! fn set_postgres_alpn(config: &mut ClientConfig) {
+//!     config.alpn_protocols = vec![POSTGRES_ALPN.to_vec()];
+//! }
 //! ```
 //!
 //! The ALPN protocol does not affect the default `sslnegotiation=postgres`
@@ -338,3 +340,11 @@ where
         })
     }
 }
+
+// Compile the README examples as doctests, so that they stay correct. Some
+// examples need the `platform-verifier` and `webpki-roots` features. Thus the
+// README examples run only when both features are enabled, for example with
+// `cargo test --doc --all-features`. The `doctests` CI job runs this command.
+#[cfg(all(doctest, feature = "platform-verifier", feature = "webpki-roots"))]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
