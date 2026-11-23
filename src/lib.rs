@@ -20,6 +20,25 @@
 //! In custom-provider or no-provider builds, install a provider before using
 //! these helpers.
 //!
+//! ## Direct SSL negotiation
+//!
+//! PostgreSQL 17 and later accept `sslnegotiation=direct`. This option needs
+//! tokio-postgres 0.7.13 or later. In this mode, the client starts the TLS
+//! handshake at once. The server then requires the ALPN protocol
+//! [`POSTGRES_ALPN`].
+//!
+//! All config helpers in this crate set this ALPN protocol. If you build your
+//! own [`rustls::ClientConfig`], set it yourself:
+//!
+//! ```rust
+//! # fn set_alpn(mut config: rustls_tokio_postgres::rustls::ClientConfig) {
+//! config.alpn_protocols = vec![rustls_tokio_postgres::POSTGRES_ALPN.to_vec()];
+//! # }
+//! ```
+//!
+//! The ALPN protocol does not affect the default `sslnegotiation=postgres`
+//! mode. CI tests this mode with PostgreSQL 14, 16, 17 and 18.
+//!
 //! ## Platform verifier
 //!
 //! Enable the `platform-verifier` feature to use certificate verification
@@ -171,6 +190,12 @@ pub use config::{CaCertError, config_from_ca_cert};
 pub use config::{NativeRootsError, config_native_roots};
 pub use rustls;
 pub use tokio_postgres;
+
+/// The ALPN protocol name for PostgreSQL connections.
+///
+/// PostgreSQL 17 and later require this protocol for connections that use
+/// `sslnegotiation=direct`.
+pub const POSTGRES_ALPN: &[u8] = b"postgresql";
 
 /// A MakeTlsConnect implementation that uses rustls.
 #[derive(Clone)]
