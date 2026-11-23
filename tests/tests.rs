@@ -417,6 +417,41 @@ async fn tls_handshake_negotiates_postgres_alpn() {
 }
 
 #[tokio::test]
+async fn tls_stream_get_ref_exposes_connection() {
+    let (mut server_config, client_config) = require_tls_configs!();
+    server_config.alpn_protocols = vec![rustls_tokio_postgres::POSTGRES_ALPN.to_vec()];
+    let addr = start_echo_server(server_config).await;
+
+    let mut make = MakeRustlsConnect::new(client_config);
+    let connector: rustls_tokio_postgres::RustlsConnect =
+        MakeTlsConnect::<TcpStream>::make_tls_connect(&mut make, "localhost").unwrap();
+    let tcp = TcpStream::connect(addr).await.unwrap();
+    let future: rustls_tokio_postgres::RustlsConnectFuture<TcpStream> = connector.connect(tcp);
+    let tls_stream: rustls_tokio_postgres::TlsStream<TcpStream> = future.await.unwrap();
+
+    let (tcp, connection) = tls_stream.get_ref();
+    assert_eq!(tcp.peer_addr().unwrap(), addr);
+    assert_eq!(
+        connection.protocol_version(),
+        Some(rustls::ProtocolVersion::TLSv1_3)
+    );
+    assert_eq!(
+        connection.alpn_protocol(),
+        Some(rustls_tokio_postgres::POSTGRES_ALPN)
+    );
+    assert_eq!(connection.peer_certificates().map(<[_]>::len), Some(1));
+}
+
+#[test]
+fn public_types_are_send_sync_unpin_and_debug() {
+    fn assert_traits<T: Send + Sync + Unpin + std::fmt::Debug>() {}
+    assert_traits::<MakeRustlsConnect>();
+    assert_traits::<rustls_tokio_postgres::RustlsConnect>();
+    assert_traits::<rustls_tokio_postgres::RustlsConnectFuture<TcpStream>>();
+    assert_traits::<rustls_tokio_postgres::TlsStream<TcpStream>>();
+}
+
+#[tokio::test]
 async fn tls_handshake_multiple_messages() {
     let (server_config, client_config) = require_tls_configs!();
     let addr = start_echo_server(server_config).await;

@@ -285,6 +285,7 @@ pub use config::{CaCertError, config_from_ca_cert};
 #[cfg(feature = "native-roots")]
 #[allow(deprecated)]
 pub use config::{NativeRootsError, config_native_roots};
+pub use connect::{RustlsConnect, RustlsConnectFuture, TlsStream};
 pub use rustls;
 pub use tokio_postgres;
 
@@ -295,7 +296,7 @@ pub use tokio_postgres;
 pub const POSTGRES_ALPN: &[u8] = b"postgresql";
 
 /// A MakeTlsConnect implementation that uses rustls.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MakeRustlsConnect {
     config: Arc<ClientConfig>,
 }
@@ -313,8 +314,8 @@ impl<S> MakeTlsConnect<S> for MakeRustlsConnect
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    type Stream = connect::TlsStream<S>;
-    type TlsConnect = connect::RustlsConnect;
+    type Stream = TlsStream<S>;
+    type TlsConnect = RustlsConnect;
     type Error = io::Error;
 
     /// Prepares a TLS connection to `hostname`.
@@ -334,7 +335,7 @@ where
                 )
             });
 
-        Ok(connect::RustlsConnect {
+        Ok(RustlsConnect {
             config: self.config.clone(),
             server_name,
         })
