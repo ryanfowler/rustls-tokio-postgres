@@ -14,8 +14,9 @@ use rustls::{
 
 #[cfg(not(any(feature = "aws-lc-rs", feature = "ring")))]
 const NO_CRYPTO_PROVIDER_ERROR: &str = "rustls-tokio-postgres could not select a rustls \
-CryptoProvider; enable this crate's `aws-lc-rs` or `ring` feature, call \
-`rustls::crypto::CryptoProvider::install_default()` before using config helpers";
+CryptoProvider. Enable the `aws-lc-rs` or `ring` feature of this crate. Or, call \
+`rustls::crypto::CryptoProvider::install_default()` before you call a `config_*` function \
+of this crate.";
 
 /// An error returned when creating a [`ClientConfig`] from a CA certificate file.
 #[derive(Debug)]

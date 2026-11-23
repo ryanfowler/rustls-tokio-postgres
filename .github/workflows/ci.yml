@@ -55,8 +55,10 @@ jobs:
             command: cargo test --all-targets
           - name: all-features
             command: cargo test --all-targets --all-features
+          # Only this job has no crypto provider, so only this job runs
+          # config_no_verify_reports_missing_crypto_provider.
           - name: no-default-features
-            command: cargo check --all-targets --no-default-features
+            command: cargo test --all-targets --no-default-features
           - name: aws-lc-rs
             command: cargo test --all-targets --no-default-features --features aws-lc-rs
           - name: aws-lc-rs-channel-binding
