@@ -151,6 +151,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+### Channel binding
+
+With the `channel-binding` feature, the client supports SCRAM-SHA-256-PLUS
+authentication. This authentication uses the `tls-server-end-point` channel
+binding type from RFC 5929. The client computes a hash of the server's leaf
+certificate. The `signatureAlgorithm` field of the certificate selects the hash
+function. For MD5 and SHA-1 signatures, the client uses SHA-256.
+
+The client supports these certificate signature algorithms:
+
+- RSA PKCS #1 v1.5 or RSA-PSS with MD5, SHA-1, SHA-224, SHA-256, SHA-384,
+  SHA-512, SHA-512/224, SHA-512/256, SHA3-224, SHA3-256, SHA3-384 or SHA3-512.
+  RSA-PSS must use MGF1 with the same hash as the signature. Otherwise, the
+  client does not use channel binding.
+- ECDSA or DSA with SHA-1, SHA-224, SHA-256, SHA-384, SHA-512, SHA3-224,
+  SHA3-256, SHA3-384 or SHA3-512.
+
+For all other algorithms, including Ed25519, Ed448, MD2, MD4 and SHAKE, the
+client does not use channel binding. The client also does not use channel
+binding if it cannot parse the certificate. In these cases:
+
+- With `channel_binding=prefer`, the default, the client uses SCRAM-SHA-256
+  without channel binding.
+- With `channel_binding=require`, the connection fails with an authentication
+  error. The cause is "server did not use channel binding".
+
+Without the `channel-binding` feature, the client never uses channel binding.
+
 ### Dangerous fallback: no certificate verification
 
 `config_no_verify()` is dangerous because it disables server certificate and
@@ -190,8 +218,7 @@ This mitigation has limits:
   the password as a SCRAM-SHA-256 verifier. Trust and certificate authentication
   fail.
 - The server certificate must use a signature algorithm that supports channel
-  binding. For example, an Ed25519 certificate fails with the error "server did
-  not use channel binding".
+  binding. See [Channel binding](#channel-binding).
 - The `channel-binding` feature must be enabled. It is enabled by default.
 
 ```rust
@@ -219,7 +246,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Features
 
 - **aws-lc-rs**: enables rustls' AWS-LC-RS crypto provider. Enabled by default.
-- **channel-binding**: enables TLS channel binding, if supported. Enabled by default.
+- **channel-binding**: enables SCRAM-SHA-256-PLUS with `tls-server-end-point`
+  channel binding. See [Channel binding](#channel-binding). Enabled by default.
 - **fips**: enables rustls' AWS-LC-RS FIPS provider support.
 - **logging**: enables rustls logging. Enabled by default.
 - **native-roots**: deprecated alias for **platform-verifier**.
