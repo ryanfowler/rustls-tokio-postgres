@@ -43,13 +43,19 @@ fails. Certificate verification uses the `host` value, not the `hostaddr` value.
 
 ### Crypto providers
 
-Config helpers use an already-installed rustls `CryptoProvider` when one
-exists. Otherwise they choose AWS-LC-RS when this crate's `aws-lc-rs` feature is
-enabled, or ring when only the `ring` feature is enabled. They do not install a
-process-global provider.
+The config helpers use the installed process-wide rustls `CryptoProvider` if
+one exists. If no provider is installed, they use AWS-LC-RS when the
+`aws-lc-rs` feature is enabled. If only the `ring` feature is enabled, they use
+ring. The helpers do not install a process-wide provider.
 
-In custom-provider or no-provider builds, install a provider before using these
-helpers.
+In a build without the `aws-lc-rs` and `ring` features, install a provider
+before you call a config helper. If no provider is available, every config
+helper panics.
+
+The provider must support the default TLS protocol versions. For example, a
+provider with no cipher suites or no key exchange groups is not compatible. With
+an incompatible provider, `config_no_verify()` and `config_webpki_roots()`
+panic. The other config helpers return an error.
 
 ### Direct SSL negotiation
 
