@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     future::Future,
     io,
     pin::Pin,
@@ -15,7 +16,10 @@ use tokio_rustls::{
     Connect as RustlsHandshake, TlsConnector, client::TlsStream as RustlsTlsStream,
 };
 
-/// Performs the TLS handshake.
+/// Performs the TLS handshake for one connection.
+///
+/// [`MakeRustlsConnect`](crate::MakeRustlsConnect) creates this value.
+/// tokio-postgres then uses it. You do not usually use it directly.
 pub struct RustlsConnect {
     pub(crate) config: Arc<ClientConfig>,
     /// The server name, or the error for an invalid or empty hostname.
@@ -42,7 +46,8 @@ where
     }
 }
 
-/// Future returned by [`RustlsConnect::connect`].
+/// The future that [`RustlsConnect`] returns from
+/// [`TlsConnect::connect`]. It finishes when the TLS handshake finishes.
 pub struct RustlsConnectFuture<S> {
     state: ConnectState<S>,
 }
@@ -74,8 +79,44 @@ where
     }
 }
 
-/// Wrap tokio-rustls' stream so we can implement tokio_postgres' TlsStream on a local type.
+/// A TLS stream to a PostgreSQL server.
+///
+/// This is the stream that [`RustlsConnect`] produces. Use
+/// [`get_ref`](Self::get_ref) to examine the TLS connection, for example to
+/// get the negotiated protocol version, the ALPN protocol or the server
+/// certificates.
 pub struct TlsStream<S>(RustlsTlsStream<S>);
+
+impl<S> TlsStream<S> {
+    /// Returns the underlying stream and the rustls client connection.
+    ///
+    /// Do not read from or write to the underlying stream. That would corrupt
+    /// the TLS session.
+    pub fn get_ref(&self) -> (&S, &rustls::ClientConnection) {
+        self.0.get_ref()
+    }
+}
+
+impl<S> fmt::Debug for TlsStream<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TlsStream").finish_non_exhaustive()
+    }
+}
+
+impl fmt::Debug for RustlsConnect {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RustlsConnect")
+            .field("server_name", &self.server_name)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<S> fmt::Debug for RustlsConnectFuture<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RustlsConnectFuture")
+            .finish_non_exhaustive()
+    }
+}
 
 impl<S> tokio_postgres::tls::TlsStream for TlsStream<S>
 where
