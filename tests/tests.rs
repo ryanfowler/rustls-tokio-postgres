@@ -301,7 +301,13 @@ fn config_no_verify_reports_missing_crypto_provider() {
         .or_else(|| panic.downcast_ref::<&str>().copied())
         .unwrap_or("");
 
-    assert!(message.contains("could not select a rustls CryptoProvider"));
+    assert_eq!(
+        message,
+        "rustls-tokio-postgres could not select a rustls CryptoProvider. Enable the \
+         `aws-lc-rs` or `ring` feature of this crate. Or, call \
+         `rustls::crypto::CryptoProvider::install_default()` before you call a `config_*` \
+         function of this crate."
+    );
 }
 
 #[test]
