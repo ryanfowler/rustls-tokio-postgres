@@ -206,12 +206,47 @@ fn make_tls_connect_valid_subdomain() {
 }
 
 #[test]
-fn make_tls_connect_empty_hostname_fails() {
+fn make_tls_connect_empty_hostname_succeeds() {
+    // tokio-postgres passes an empty hostname for Unix sockets and
+    // `hostaddr`-only configs, also when TLS is disabled.
     let config = require_config!();
     let mut make = MakeRustlsConnect::new(config);
-    match MakeTlsConnect::<TcpStream>::make_tls_connect(&mut make, "") {
-        Ok(_) => panic!("empty hostname should fail"),
-        Err(err) => assert_eq!(err.kind(), io::ErrorKind::InvalidInput),
+    assert!(MakeTlsConnect::<TcpStream>::make_tls_connect(&mut make, "").is_ok());
+}
+
+#[tokio::test]
+async fn make_tls_connect_empty_hostname_fails_in_handshake() {
+    assert_handshake_rejects_hostname("").await;
+}
+
+#[test]
+fn make_tls_connect_invalid_hostname_succeeds() {
+    let config = require_config!();
+    let mut make = MakeRustlsConnect::new(config);
+    assert!(MakeTlsConnect::<TcpStream>::make_tls_connect(&mut make, "bad name").is_ok());
+}
+
+#[tokio::test]
+async fn make_tls_connect_invalid_hostname_fails_in_handshake() {
+    assert_handshake_rejects_hostname("bad name").await;
+}
+
+async fn assert_handshake_rejects_hostname(hostname: &str) {
+    let config = require_config!();
+    let mut make = MakeRustlsConnect::new(config);
+    let connector =
+        MakeTlsConnect::<tokio::io::DuplexStream>::make_tls_connect(&mut make, hostname).unwrap();
+
+    let (stream, _peer) = tokio::io::duplex(64);
+    match connector.connect(stream).await {
+        Ok(_) => panic!("TLS handshake with hostname {hostname:?} should fail"),
+        Err(err) => {
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+            assert!(
+                err.to_string().contains(&format!("{hostname:?}")),
+                "error does not name the hostname: {err}"
+            );
+        }
     }
 }
 
