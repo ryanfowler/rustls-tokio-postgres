@@ -71,6 +71,10 @@ jobs:
             command: cargo test --all-targets --no-default-features --features ring,channel-binding
           - name: ring-roots
             command: cargo test --all-targets --no-default-features --features ring,native-roots,webpki-roots,tls12,logging
+          # Test the lowest tokio-rustls version that Cargo.toml allows, so
+          # the code does not use APIs from newer patch releases.
+          - name: tokio-rustls-0.26.0
+            command: cargo update -p tokio-rustls --precise 0.26.0 && cargo test --all-targets
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
