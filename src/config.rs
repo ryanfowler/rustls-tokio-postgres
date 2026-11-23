@@ -187,6 +187,12 @@ fn root_store_from_ca_cert(path: impl AsRef<Path>) -> Result<rustls::RootCertSto
 /// Prefer `config_from_ca_cert`, `config_platform_verifier`,
 /// `config_webpki_roots`, or a custom [`ClientConfig`] with an explicit root
 /// store for production systems.
+///
+/// If you must use this config, add `channel_binding=require` to the
+/// connection string. Then an attacker between the client and the server
+/// cannot authenticate to the real server. This mitigation has important
+/// limits. For example, an attacker can still guess the password offline. See
+/// the crate documentation.
 pub fn config_no_verify() -> ClientConfig {
     let provider = default_crypto_provider();
     let signature_verification_algorithms = provider.signature_verification_algorithms;

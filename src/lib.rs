@@ -12,8 +12,8 @@
 //! ## TLS modes
 //!
 //! tokio-postgres accepts three `sslmode` values: `disable`, `prefer` and
-//! `require`. It does not accept the libpq values `verify-ca` and `verify-
-//! full`. The default is `prefer`.
+//! `require`. It does not accept the libpq values `verify-ca` and
+//! `verify-full`. The default is `prefer`.
 //!
 //! This crate does not decide whether to verify the server. The
 //! [`rustls::ClientConfig`] decides. With a verifying TLS configuration, such
@@ -164,12 +164,44 @@
 //! `config_webpki_roots()`, or a custom [`rustls::ClientConfig`] with an
 //! explicit root store for production systems.
 //!
+//! ### Mitigation: SCRAM channel binding
+//!
+//! If you must use [`config_no_verify()`], add `channel_binding=require` to the
+//! connection string. With this option, tokio-postgres accepts only
+//! SCRAM-SHA-256-PLUS authentication. Other authentication methods fail.
+//!
+//! SCRAM-SHA-256-PLUS binds the authentication to the server certificate that
+//! the client received. An attacker between the client and the server that does
+//! not have the server's private key must show a different certificate. The
+//! real server then rejects the authentication, so the attacker cannot relay
+//! the connection. The client also checks the SCRAM server signature. Only a
+//! server that has the SCRAM verifier for the user can make this signature.
+//!
+//! This mitigation has limits:
+//!
+//! - The client sends its SCRAM proof before it checks the server signature. An
+//!   attacker can collect this proof and guess the password offline. The
+//!   attacker also sees the user name and the database name. Use a long, random
+//!   password.
+//! - An attacker that has the SCRAM verifier, for example from a database
+//!   backup, can act as the server. The attacker can then read and change all
+//!   queries and results.
+//! - An attacker that has the server's private key can relay the connection.
+//! - The server must use SCRAM-SHA-256 password authentication, and it must
+//!   store the password as a SCRAM-SHA-256 verifier. Trust and certificate
+//!   authentication fail.
+//! - The server certificate must use a signature algorithm that supports
+//!   channel binding. For example, an Ed25519 certificate fails with the error
+//!   "server did not use channel binding".
+//! - The `channel-binding` feature must be enabled. It is enabled by default.
+//!
 //! ```rust,no_run
 //! use rustls_tokio_postgres::{config_no_verify, MakeRustlsConnect};
 //! use tokio_postgres::connect;
 //!
 //! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
-//! static CONFIG: &str = "host=localhost user=postgres sslmode=require";
+//! static CONFIG: &str =
+//!     "host=localhost user=postgres sslmode=require channel_binding=require";
 //!
 //! let config = config_no_verify();
 //!
