@@ -265,9 +265,14 @@ async fn assert_handshake_rejects_hostname(hostname: &str) {
         Ok(_) => panic!("TLS handshake with hostname {hostname:?} should fail"),
         Err(err) => {
             assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+            assert_eq!(
+                err.to_string(),
+                format!("invalid hostname {hostname:?} for TLS")
+            );
+            let source = std::error::Error::source(&err).expect("error has a source");
             assert!(
-                err.to_string().contains(&format!("{hostname:?}")),
-                "error does not name the hostname: {err}"
+                source.is::<rustls_tokio_postgres::rustls::pki_types::InvalidDnsNameError>(),
+                "unexpected source: {source:?}"
             );
         }
     }

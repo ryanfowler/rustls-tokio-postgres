@@ -267,9 +267,12 @@
 //! - **tls12**: enables rustls TLS 1.2 support. Enabled by default.
 //! - **webpki-roots**: enables a helper function for creating a [`rustls::ClientConfig`] using the webpki roots.
 
-use std::{io, sync::Arc};
+use std::{error, fmt, io, sync::Arc};
 
-use rustls::{ClientConfig, pki_types::ServerName};
+use rustls::{
+    ClientConfig,
+    pki_types::{InvalidDnsNameError, ServerName},
+};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_postgres::tls::MakeTlsConnect;
 
@@ -333,14 +336,19 @@ where
     /// is off. For a Unix socket or a `hostaddr`-only config, the hostname is
     /// empty. So this function does not fail for an invalid hostname. The
     /// handshake returns an [`io::Error`] of kind
-    /// [`InvalidInput`](io::ErrorKind::InvalidInput).
+    /// [`InvalidInput`](io::ErrorKind::InvalidInput). The error message names
+    /// the hostname. The source of the error is the
+    /// [`InvalidDnsNameError`] from rustls.
     fn make_tls_connect(&mut self, hostname: &str) -> Result<Self::TlsConnect, Self::Error> {
         let server_name = ServerName::try_from(hostname)
             .map(|name| name.to_owned())
-            .map_err(|err| {
+            .map_err(|source| {
                 io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    format!("invalid hostname {hostname:?} for TLS: {err}"),
+                    InvalidHostname {
+                        hostname: hostname.to_owned(),
+                        source,
+                    },
                 )
             });
 
@@ -348,6 +356,28 @@ where
             config: self.config.clone(),
             server_name,
         })
+    }
+}
+
+/// The error for a hostname that is not a valid TLS server name.
+///
+/// `source()` returns the [`InvalidDnsNameError`]. The [`io::Error`] that wraps
+/// this type returns the same error.
+#[derive(Debug)]
+struct InvalidHostname {
+    hostname: String,
+    source: InvalidDnsNameError,
+}
+
+impl fmt::Display for InvalidHostname {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid hostname {:?} for TLS", self.hostname)
+    }
+}
+
+impl error::Error for InvalidHostname {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        Some(&self.source)
     }
 }
 
