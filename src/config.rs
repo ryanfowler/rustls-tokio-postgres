@@ -101,9 +101,11 @@ impl std::error::Error for NativeRootsError {
 pub fn config_platform_verifier() -> Result<ClientConfig, TlsError> {
     use rustls_platform_verifier::BuilderVerifierExt as _;
 
-    Ok(client_config_builder()?
-        .with_platform_verifier()?
-        .with_no_client_auth())
+    Ok(with_postgres_alpn(
+        client_config_builder()?
+            .with_platform_verifier()?
+            .with_no_client_auth(),
+    ))
 }
 
 /// Returns a rustls ClientConfig that uses certificate verification provided by
@@ -129,10 +131,12 @@ pub fn config_webpki_roots() -> ClientConfig {
     let mut root_store = rustls::RootCertStore::empty();
     root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 
-    client_config_builder()
-        .expect("failed to configure rustls client protocol versions")
-        .with_root_certificates(root_store)
-        .with_no_client_auth()
+    with_postgres_alpn(
+        client_config_builder()
+            .expect("failed to configure rustls client protocol versions")
+            .with_root_certificates(root_store)
+            .with_no_client_auth(),
+    )
 }
 
 /// Returns a rustls ClientConfig that trusts CA certificates from a PEM file.
@@ -144,9 +148,11 @@ pub fn config_webpki_roots() -> ClientConfig {
 pub fn config_from_ca_cert(path: impl AsRef<Path>) -> Result<ClientConfig, CaCertError> {
     let root_store = root_store_from_ca_cert(path)?;
 
-    Ok(client_config_builder()?
-        .with_root_certificates(root_store)
-        .with_no_client_auth())
+    Ok(with_postgres_alpn(
+        client_config_builder()?
+            .with_root_certificates(root_store)
+            .with_no_client_auth(),
+    ))
 }
 
 fn root_store_from_ca_cert(path: impl AsRef<Path>) -> Result<rustls::RootCertStore, CaCertError> {
@@ -185,13 +191,21 @@ pub fn config_no_verify() -> ClientConfig {
     let provider = default_crypto_provider();
     let signature_verification_algorithms = provider.signature_verification_algorithms;
 
-    client_config_builder_with_provider(provider)
-        .expect("failed to configure rustls client protocol versions")
-        .dangerous()
-        .with_custom_certificate_verifier(Arc::new(NoopTlsVerifier {
-            signature_verification_algorithms,
-        }))
-        .with_no_client_auth()
+    with_postgres_alpn(
+        client_config_builder_with_provider(provider)
+            .expect("failed to configure rustls client protocol versions")
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(NoopTlsVerifier {
+                signature_verification_algorithms,
+            }))
+            .with_no_client_auth(),
+    )
+}
+
+/// Sets the PostgreSQL ALPN protocol, which `sslnegotiation=direct` requires.
+fn with_postgres_alpn(mut config: ClientConfig) -> ClientConfig {
+    config.alpn_protocols = vec![crate::POSTGRES_ALPN.to_vec()];
+    config
 }
 
 fn client_config_builder() -> Result<ConfigBuilder<ClientConfig, WantsVerifier>, TlsError> {

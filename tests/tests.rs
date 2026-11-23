@@ -248,6 +248,7 @@ fn config_no_verify_selects_feature_provider() {
     }
 
     let config = rustls_tokio_postgres::config_no_verify();
+    assert_postgres_alpn(&config);
     let _ = MakeRustlsConnect::new(config);
 }
 
@@ -277,6 +278,7 @@ fn config_from_ca_cert_selects_feature_provider() {
     let ca_cert_path = write_temp_ca_file(LOCALHOST_CERT_PEM);
 
     let config = rustls_tokio_postgres::config_from_ca_cert(&ca_cert_path).unwrap();
+    assert_postgres_alpn(&config);
     let _ = MakeRustlsConnect::new(config);
     std::fs::remove_file(ca_cert_path).unwrap();
 }
@@ -289,7 +291,26 @@ fn config_webpki_roots_selects_feature_provider() {
     }
 
     let config = rustls_tokio_postgres::config_webpki_roots();
+    assert_postgres_alpn(&config);
     let _ = MakeRustlsConnect::new(config);
+}
+
+#[cfg(feature = "platform-verifier")]
+#[test]
+fn config_platform_verifier_sets_postgres_alpn() {
+    if test_crypto_provider().is_none() {
+        return;
+    }
+
+    let config = rustls_tokio_postgres::config_platform_verifier().unwrap();
+    assert_postgres_alpn(&config);
+}
+
+fn assert_postgres_alpn(config: &ClientConfig) {
+    assert_eq!(
+        config.alpn_protocols,
+        vec![rustls_tokio_postgres::POSTGRES_ALPN.to_vec()]
+    );
 }
 
 #[test]
@@ -322,6 +343,31 @@ async fn tls_handshake_and_echo() {
     let mut buf = vec![0u8; payload.len()];
     tls_stream.read_exact(&mut buf).await.unwrap();
     assert_eq!(&buf, payload);
+}
+
+#[tokio::test]
+async fn tls_handshake_negotiates_postgres_alpn() {
+    let (mut server_config, client_config) = require_tls_configs!();
+    server_config.alpn_protocols = vec![rustls_tokio_postgres::POSTGRES_ALPN.to_vec()];
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(server_config));
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let tls = acceptor.accept(stream).await.unwrap();
+        tls.get_ref().1.alpn_protocol().map(<[u8]>::to_vec)
+    });
+
+    let mut make = MakeRustlsConnect::new(client_config);
+    let connector = MakeTlsConnect::<TcpStream>::make_tls_connect(&mut make, "localhost").unwrap();
+    let tcp = TcpStream::connect(addr).await.unwrap();
+    let _tls_stream = connector.connect(tcp).await.unwrap();
+
+    assert_eq!(
+        server.await.unwrap().as_deref(),
+        Some(rustls_tokio_postgres::POSTGRES_ALPN)
+    );
 }
 
 #[tokio::test]

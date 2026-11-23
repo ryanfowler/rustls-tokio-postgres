@@ -87,7 +87,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        postgres: ["17", "18"]
+        postgres: ["14", "16", "17", "18"]
         provider:
           - name: aws-lc-rs
             features: aws-lc-rs,channel-binding
@@ -144,6 +144,13 @@ jobs:
       - name: Verify PostgreSQL SCRAM-PLUS
         env:
           PG_SCRAM_PLUS_TEST_CONFIG: host=127.0.0.1 port=5432 user=postgres password=postgres dbname=postgres sslmode=require channel_binding=require connect_timeout=10
+        run: cargo test --test postgres_scram_plus --no-default-features --features ${{ matrix.provider.features }} -- --nocapture
+
+      - name: Verify PostgreSQL direct SSL negotiation
+        # Direct SSL negotiation needs PostgreSQL 17 or later.
+        if: ${{ fromJSON(matrix.postgres) >= 17 }}
+        env:
+          PG_SCRAM_PLUS_TEST_CONFIG: host=127.0.0.1 port=5432 user=postgres password=postgres dbname=postgres sslmode=require sslnegotiation=direct channel_binding=require connect_timeout=10
         run: cargo test --test postgres_scram_plus --no-default-features --features ${{ matrix.provider.features }} -- --nocapture
 
       - name: Stop PostgreSQL
