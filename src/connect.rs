@@ -131,16 +131,16 @@ where
 ///
 /// If the certificate cannot be parsed or the signature algorithm is unknown,
 /// return `None` so callers can opt out of channel binding.
+///
+/// MD2, MD4 and SHAKE signature algorithms also return `None`. PostgreSQL
+/// computes the digest with OpenSSL. OpenSSL does not compute these digests in
+/// its default configuration. If the client has a digest, the client selects
+/// SCRAM-SHA-256-PLUS, and the server then ends the connection with an error.
+/// With `None`, the client uses SCRAM-SHA-256 without channel binding.
 #[cfg(feature = "channel-binding")]
 fn tls_server_end_point_digest(cert_der: &[u8]) -> Option<Vec<u8>> {
-    use md2::Md2;
-    use md4::Md4;
     use sha2::{Digest, Sha224, Sha256, Sha384, Sha512, Sha512_224, Sha512_256};
-    use sha3::{
-        Sha3_224, Sha3_256, Sha3_384, Sha3_512,
-        digest::{ExtendableOutput, Update, XofReader},
-    };
-    use shake::{Shake128, Shake256};
+    use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512};
     use x509_parser::{
         asn1_rs::{Oid, oid},
         oid_registry::OID_PKCS1_RSASSAPSS,
@@ -150,8 +150,6 @@ fn tls_server_end_point_digest(cert_der: &[u8]) -> Option<Vec<u8>> {
 
     #[derive(Clone, Copy)]
     enum HashAlgorithm {
-        Md2,
-        Md4,
         Sha224,
         Sha256,
         Sha384,
@@ -162,8 +160,6 @@ fn tls_server_end_point_digest(cert_der: &[u8]) -> Option<Vec<u8>> {
         Sha3_256,
         Sha3_384,
         Sha3_512,
-        Shake128,
-        Shake256,
     }
 
     fn hash_for_oid(oid: &Oid<'_>) -> Option<HashAlgorithm> {
@@ -189,13 +185,6 @@ fn tls_server_end_point_digest(cert_der: &[u8]) -> Option<Vec<u8>> {
     }
 
     fn hash_for_signature_oid(oid: &Oid<'_>) -> Option<HashAlgorithm> {
-        if oid == &oid!(1.2.840.113549.1.1.2) {
-            return Some(HashAlgorithm::Md2);
-        }
-        if oid == &oid!(1.2.840.113549.1.1.3) {
-            return Some(HashAlgorithm::Md4);
-        }
-
         let sha256_fallback = [
             oid!(1.2.840.113549.1.1.4), // md5WithRSAEncryption
             oid!(1.2.840.113549.1.1.5), // sha1WithRSAEncryption
@@ -208,6 +197,7 @@ fn tls_server_end_point_digest(cert_der: &[u8]) -> Option<Vec<u8>> {
             return Some(HashAlgorithm::Sha256);
         }
 
+        // Do not add MD2, MD4 or SHAKE. See the function documentation.
         let signatures = [
             (oid!(1.2.840.113549.1.1.14), HashAlgorithm::Sha224),
             (oid!(1.2.840.10045.4.3.1), HashAlgorithm::Sha224),
@@ -235,10 +225,6 @@ fn tls_server_end_point_digest(cert_der: &[u8]) -> Option<Vec<u8>> {
             (oid!(2.16.840.1.101.3.4.3.8), HashAlgorithm::Sha3_512),
             (oid!(2.16.840.1.101.3.4.3.12), HashAlgorithm::Sha3_512),
             (oid!(2.16.840.1.101.3.4.3.16), HashAlgorithm::Sha3_512),
-            (oid!(1.3.6.1.5.5.7.6.30), HashAlgorithm::Shake128),
-            (oid!(1.3.6.1.5.5.7.6.31), HashAlgorithm::Shake256),
-            (oid!(1.3.6.1.5.5.7.6.32), HashAlgorithm::Shake128),
-            (oid!(1.3.6.1.5.5.7.6.33), HashAlgorithm::Shake256),
         ];
         signatures
             .into_iter()
@@ -261,8 +247,6 @@ fn tls_server_end_point_digest(cert_der: &[u8]) -> Option<Vec<u8>> {
     };
 
     Some(match hash {
-        HashAlgorithm::Md2 => Md2::digest(cert_der).to_vec(),
-        HashAlgorithm::Md4 => Md4::digest(cert_der).to_vec(),
         HashAlgorithm::Sha224 => Sha224::digest(cert_der).to_vec(),
         HashAlgorithm::Sha256 => Sha256::digest(cert_der).to_vec(),
         HashAlgorithm::Sha384 => Sha384::digest(cert_der).to_vec(),
@@ -273,34 +257,14 @@ fn tls_server_end_point_digest(cert_der: &[u8]) -> Option<Vec<u8>> {
         HashAlgorithm::Sha3_256 => Sha3_256::digest(cert_der).to_vec(),
         HashAlgorithm::Sha3_384 => Sha3_384::digest(cert_der).to_vec(),
         HashAlgorithm::Sha3_512 => Sha3_512::digest(cert_der).to_vec(),
-        HashAlgorithm::Shake128 => {
-            let mut hash = Shake128::default();
-            Update::update(&mut hash, cert_der);
-            let mut digest = vec![0; 32];
-            hash.finalize_xof().read(&mut digest);
-            digest
-        }
-        HashAlgorithm::Shake256 => {
-            let mut hash = Shake256::default();
-            Update::update(&mut hash, cert_der);
-            let mut digest = vec![0; 64];
-            hash.finalize_xof().read(&mut digest);
-            digest
-        }
     })
 }
 
 #[cfg(all(test, feature = "channel-binding"))]
 mod tests {
     use super::tls_server_end_point_digest;
-    use md2::Md2;
-    use md4::Md4;
     use sha2::{Digest, Sha224, Sha256, Sha384, Sha512, Sha512_224, Sha512_256};
-    use sha3::{
-        Sha3_224, Sha3_256, Sha3_384, Sha3_512,
-        digest::{ExtendableOutput, Update, XofReader},
-    };
-    use shake::{Shake128, Shake256};
+    use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512};
 
     const OID_HASH_SHA1: &[u64] = &[1, 3, 14, 3, 2, 26];
     const OID_NIST_HASH_SHA224: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 2, 4];
@@ -331,14 +295,6 @@ mod tests {
         let expected = D::digest(der).to_vec();
         assert_eq!(result, expected);
         assert_eq!(result.len(), expected_len);
-    }
-
-    fn assert_shake<X: Default + Update + ExtendableOutput>(der: &[u8], expected_len: usize) {
-        let mut hash = X::default();
-        hash.update(der);
-        let mut expected = vec![0; expected_len];
-        hash.finalize_xof().read(&mut expected);
-        assert_eq!(tls_server_end_point_digest(der).unwrap(), expected);
     }
 
     fn der(tag: u8, contents: &[u8]) -> Vec<u8> {
@@ -728,12 +684,6 @@ mod tests {
     #[test]
     fn digest_other_supported_fixed_signature_oids() {
         let cases: &[DigestCase<'_>] = &[
-            (&[1, 2, 840, 113549, 1, 1, 2], |der| {
-                assert_digest::<Md2>(der, 16)
-            }),
-            (&[1, 2, 840, 113549, 1, 1, 3], |der| {
-                assert_digest::<Md4>(der, 16)
-            }),
             (&[1, 2, 840, 113549, 1, 1, 4], |der| {
                 assert_digest::<Sha256>(der, 32)
             }),
@@ -746,24 +696,44 @@ mod tests {
             (&[1, 2, 840, 10045, 4, 3, 4], |der| {
                 assert_digest::<Sha512>(der, 64)
             }),
-            (&[1, 3, 6, 1, 5, 5, 7, 6, 30], |der| {
-                assert_shake::<Shake128>(der, 32)
-            }),
-            (&[1, 3, 6, 1, 5, 5, 7, 6, 31], |der| {
-                assert_shake::<Shake256>(der, 64)
-            }),
-            (&[1, 3, 6, 1, 5, 5, 7, 6, 32], |der| {
-                assert_shake::<Shake128>(der, 32)
-            }),
-            (&[1, 3, 6, 1, 5, 5, 7, 6, 33], |der| {
-                assert_shake::<Shake256>(der, 64)
-            }),
         ];
 
         for (oid, assertion) in cases {
             let signature_algorithm = algorithm_identifier(oid, None);
             let der = cert_der_with_signature_algorithm(&signature_algorithm);
             assertion(&der);
+        }
+    }
+
+    #[test]
+    fn digest_md2_md4_and_shake_signatures_are_unsupported() {
+        let oids: &[&[u64]] = &[
+            &[1, 2, 840, 113549, 1, 1, 2], // md2WithRSAEncryption
+            &[1, 2, 840, 113549, 1, 1, 3], // md4WithRSAEncryption
+            &[1, 3, 6, 1, 5, 5, 7, 6, 30], // id-RSASSA-PSS-SHAKE128
+            &[1, 3, 6, 1, 5, 5, 7, 6, 31], // id-RSASSA-PSS-SHAKE256
+            &[1, 3, 6, 1, 5, 5, 7, 6, 32], // id-ecdsa-with-shake128
+            &[1, 3, 6, 1, 5, 5, 7, 6, 33], // id-ecdsa-with-shake256
+        ];
+
+        for oid in oids {
+            let signature_algorithm = algorithm_identifier(oid, None);
+            let der = cert_der_with_signature_algorithm(&signature_algorithm);
+            assert_eq!(tls_server_end_point_digest(&der), None, "{oid:?}");
+        }
+    }
+
+    #[test]
+    fn digest_rsa_pss_md2_md4_hashes_are_unsupported() {
+        let hash_oids: &[&[u64]] = &[
+            &[1, 2, 840, 113549, 2, 2], // md2
+            &[1, 2, 840, 113549, 2, 4], // md4
+        ];
+
+        for hash_oid in hash_oids {
+            let signature_algorithm = rsa_pss_algorithm_identifier(hash_oid);
+            let der = cert_der_with_signature_algorithm(&signature_algorithm);
+            assert_eq!(tls_server_end_point_digest(&der), None, "{hash_oid:?}");
         }
     }
 
