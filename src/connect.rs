@@ -18,7 +18,8 @@ use tokio_rustls::{
 /// Performs the TLS handshake.
 pub struct RustlsConnect {
     pub(crate) config: Arc<ClientConfig>,
-    pub(crate) server_name: ServerName<'static>,
+    /// The server name, or the error for an invalid or empty hostname.
+    pub(crate) server_name: io::Result<ServerName<'static>>,
 }
 
 impl<S> TlsConnect<S> for RustlsConnect
@@ -30,17 +31,29 @@ where
     type Future = RustlsConnectFuture<S>;
 
     fn connect(self, stream: S) -> Self::Future {
-        let connector = TlsConnector::from(self.config);
-        let server_name = self.server_name;
-        RustlsConnectFuture {
-            inner: connector.connect(server_name, stream),
-        }
+        let state = match self.server_name {
+            Ok(server_name) => {
+                let connector = TlsConnector::from(self.config);
+                ConnectState::Handshake(connector.connect(server_name, stream))
+            }
+            Err(err) => ConnectState::Failed(Some(err)),
+        };
+        RustlsConnectFuture { state }
     }
 }
 
 /// Future returned by [`RustlsConnect::connect`].
 pub struct RustlsConnectFuture<S> {
-    inner: RustlsHandshake<S>,
+    state: ConnectState<S>,
+}
+
+// Every future has the size of the handshake variant. A struct with both
+// fields would be larger. Boxing would add an allocation per connection.
+#[allow(clippy::large_enum_variant)]
+enum ConnectState<S> {
+    Handshake(RustlsHandshake<S>),
+    /// The hostname was not valid. The first poll returns this error.
+    Failed(Option<io::Error>),
 }
 
 impl<S> Future for RustlsConnectFuture<S>
@@ -50,7 +63,14 @@ where
     type Output = io::Result<TlsStream<S>>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Pin::new(&mut self.inner).poll(cx).map(|r| r.map(TlsStream))
+        match &mut self.state {
+            ConnectState::Handshake(handshake) => {
+                Pin::new(handshake).poll(cx).map(|r| r.map(TlsStream))
+            }
+            ConnectState::Failed(err) => Poll::Ready(Err(err
+                .take()
+                .expect("RustlsConnectFuture polled after completion"))),
+        }
     }
 }
 

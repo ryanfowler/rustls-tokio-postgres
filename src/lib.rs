@@ -169,10 +169,7 @@
 
 use std::{io, sync::Arc};
 
-use rustls::{
-    ClientConfig,
-    pki_types::{InvalidDnsNameError, ServerName},
-};
+use rustls::{ClientConfig, pki_types::ServerName};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_postgres::tls::MakeTlsConnect;
 
@@ -220,12 +217,22 @@ where
     type TlsConnect = connect::RustlsConnect;
     type Error = io::Error;
 
+    /// Prepares a TLS connection to `hostname`.
+    ///
+    /// tokio-postgres calls this function for every connection, even when TLS
+    /// is off. For a Unix socket or a `hostaddr`-only config, the hostname is
+    /// empty. So this function does not fail for an invalid hostname. The
+    /// handshake returns an [`io::Error`] of kind
+    /// [`InvalidInput`](io::ErrorKind::InvalidInput).
     fn make_tls_connect(&mut self, hostname: &str) -> Result<Self::TlsConnect, Self::Error> {
         let server_name = ServerName::try_from(hostname)
-            .map_err(|e: InvalidDnsNameError| {
-                io::Error::new(io::ErrorKind::InvalidInput, e.to_string())
-            })?
-            .to_owned();
+            .map(|name| name.to_owned())
+            .map_err(|err| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("invalid hostname {hostname:?} for TLS: {err}"),
+                )
+            });
 
         Ok(connect::RustlsConnect {
             config: self.config.clone(),
