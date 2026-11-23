@@ -67,7 +67,11 @@ All config helpers in this crate set this ALPN protocol. If you build your own
 `rustls::ClientConfig`, set it yourself:
 
 ```rust
-config.alpn_protocols = vec![rustls_tokio_postgres::POSTGRES_ALPN.to_vec()];
+use rustls_tokio_postgres::{POSTGRES_ALPN, rustls::ClientConfig};
+
+fn set_postgres_alpn(config: &mut ClientConfig) {
+    config.alpn_protocols = vec![POSTGRES_ALPN.to_vec()];
+}
 ```
 
 The ALPN protocol does not affect the default `sslnegotiation=postgres` mode.
@@ -78,7 +82,7 @@ CI tests this mode with PostgreSQL 14, 16, 17 and 18.
 Enable the `platform-verifier` feature to use certificate verification provided
 by the current platform.
 
-```rust
+```rust,no_run
 use rustls_tokio_postgres::{config_platform_verifier, MakeRustlsConnect};
 use tokio_postgres::connect;
 
@@ -104,7 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 Enable the `webpki-roots` feature to use the trust anchors from the
 `webpki-roots` crate.
 
-```rust
+```rust,no_run
 use rustls_tokio_postgres::{config_webpki_roots, MakeRustlsConnect};
 use tokio_postgres::connect;
 
@@ -130,7 +134,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 Use `config_from_ca_cert()` when a provider publishes a CA certificate file or
 bundle for verifying its database servers.
 
-```rust
+```rust,no_run
 use rustls_tokio_postgres::{config_from_ca_cert, MakeRustlsConnect};
 use tokio_postgres::connect;
 
@@ -221,7 +225,7 @@ This mitigation has limits:
   binding. See [Channel binding](#channel-binding).
 - The `channel-binding` feature must be enabled. It is enabled by default.
 
-```rust
+```rust,no_run
 use rustls_tokio_postgres::{config_no_verify, MakeRustlsConnect};
 use tokio_postgres::connect;
 

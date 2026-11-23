@@ -33,6 +33,16 @@ jobs:
           components: clippy
       - run: cargo clippy --all-targets --all-features -- -D warnings
 
+  doctests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      # `cargo test --all-targets` does not run doctests. With all features,
+      # this job also compiles the README examples.
+      - run: cargo test --doc --all-features
+
   docs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
