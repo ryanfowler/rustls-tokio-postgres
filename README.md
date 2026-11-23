@@ -12,6 +12,35 @@ Prefer a verifying TLS configuration for normal application code. This crate
 provides helpers for explicit CA certificate files, the platform verifier, and
 the Mozilla WebPKI trust store behind optional features.
 
+### TLS modes
+
+tokio-postgres accepts three `sslmode` values: `disable`, `prefer` and
+`require`. It does not accept the libpq values `verify-ca` and `verify-full`.
+The default is `prefer`.
+
+This crate does not decide whether to verify the server. The
+`rustls::ClientConfig` decides. With a verifying TLS configuration, such as one
+from `config_from_ca_cert()`, every TLS connection verifies the server
+certificate chain and the hostname. This is the same as libpq's `verify-full`
+mode. With `config_no_verify()`, the client does not verify the certificate
+chain or the hostname.
+
+- **`require`**: The connection fails if the server does not support TLS. Use
+  `require` with a verifying TLS configuration in production.
+- **`prefer`**: If the server does not support TLS, the client continues without
+  encryption. An attacker between the client and the server can make the server
+  seem to refuse TLS. The client then sends all data in plaintext. With
+  `password` or `md5` authentication, the plaintext data includes the password
+  or its hash. `sslnegotiation=direct` does not accept `prefer`.
+- **`disable`**: The client does not use TLS.
+
+A certificate error stops the connection to that host. If the config has more
+than one host, the client then tries the next host. Under `prefer`, the next
+host can connect without TLS.
+
+TLS needs a `host` value. If the config has only `hostaddr`, the TLS handshake
+fails. Certificate verification uses the `host` value, not the `hostaddr` value.
+
 ### Crypto providers
 
 Config helpers use an already-installed rustls `CryptoProvider` when one
